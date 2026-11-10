@@ -10,7 +10,7 @@ on at run time with `TOTK_VR=1`. A build without `--vr` has none of it and is th
 |---|---|---|
 | 0 | OpenXR headers, the build flag, the math, the `fake_xr` test runtime, tests | done |
 | 1 | OpenXR session on the game's Vulkan device; the flat game on a virtual screen in the headset | done (tested against fake_xr, not in the game) |
-| 2 | Head tracking: the head on the game's camera, the headset's field of view | not started: needs the camera sites in 1.4.3 (below) |
+| 2 | Head tracking: the head on the game's camera, the headset's field of view | not started: needs the camera sites (below) |
 | 3 | Stereo: a frame per eye, the game's clock once a pair | not started: needs phase 2 and the frame-step site |
 | 4 | HUD apart from the scene | not started: needs phase 3 |
 | 5 | VR controllers as the game's controller | done (tested against fake_xr, not in the game) |
@@ -18,8 +18,8 @@ on at run time with `TOTK_VR=1`. A build without `--vr` has none of it and is th
 | 8 | Motion combat: slashes and stabs attack, the left hand raised guards (BetterVR's analysis) | done (tested against fake_xr, not in the game) |
 | 7, 9, 10 | Arms, performance, release | not started |
 
-**None of it has run with the game yet**: it needs your own game files (base 1.0.0 and the 1.4.3 update, dumped from
-your own console) set up as docs/building.md says. Everything here is tested without the game (below).
+**None of it has run with the game yet**: it needs your own game files (base 1.0.0 and the 1.2.1 or 1.4.3 update, dumped
+from your own console) set up as [vr-setup.md](vr-setup.md) says. Everything here is tested without the game (below).
 
 ## What it does now
 
@@ -57,9 +57,9 @@ As docs/building.md says, with the MSYS2 UCRT64 toolchain (the installer's llvm-
 loader: `pacman -S mingw-w64-ucrt-x86_64-openxr-sdk`. Build with `--vr`:
 
 ```
-.venv\Scripts\python tools\build_game.py --version v143 --vr
+.venv\Scripts\python tools\build_game.py --version <ver> --vr
 set TOTK_VR=1
-build\v143\totk.exe
+build\<ver>\totk.exe
 ```
 
 Start the headset's OpenXR runtime first (Virtual Desktop's VDXR, SteamVR, Quest Link, WMR) and make it the active one.
@@ -69,10 +69,10 @@ Start the headset's OpenXR runtime first (Virtual Desktop's VDXR, SteamVR, Quest
 Savage Wind VR puts the head on the camera where sead::LookAtCamera::doUpdateMatrix reads the eye, at and up of a view
 camera, and the headset's field of view where sead::PerspectiveProjection builds its matrix; stereo then draws a frame
 per eye with the game's clock stepped once a pair. TotK uses the same sead library. `tools/vr/find_vr_sites.py <your
-extracted main>` looks for those two functions in your own 1.4.3 main with Savage Wind's patterns and prints their
+extracted main>` looks for those two functions in your own main with Savage Wind's patterns and prints their
 module offsets and instruction words (on BotW 1.9.0's main it finds the very sites Savage Wind uses). The next steps:
 
-1. Run it on your 1.4.3 main. Each found site becomes a line of a `vr` set in recomp/patches-v143.txt: a `bl` to a host
+1. Run it on your main. Each found site becomes a line of a `vr` set in recomp/patches-<ver>.txt: a `bl` to a host
    callback on the patch page, as the `mouse_direct` set does (recomp/patches.py), registered with
    `rt_register_host`.
 2. Behind the camera callback, Savage Wind VR's runtime/vr/vr_camera.c and vr_pair.h; behind the projection one, its

@@ -2,6 +2,13 @@
 
 **TotK Recomp** is a static recompilation of *The Legend of Zelda: Tears of the Kingdom* (Nintendo Switch, 2023) into a native x86-64 application for Windows and Linux ([docs/architecture.md](docs/architecture.md)).
 
+> [!NOTE]
+> **TOTK VR Recomp** is a fork of [TotK Recomp](https://github.com/valentderah/totk-pc-recomp) with a PC-VR mode
+> (OpenXR), ported from its sister project [BOTW VR Recomp](https://github.com/guideahon/BOTW-VR-RECOMP): the game on a
+> virtual screen in the headset, VR controllers and motion combat now; head tracking and stereo next. **Set it up from
+> zero, dumping your own game: [docs/vr-setup.md](docs/vr-setup.md)** (también en español). Status and what is missing:
+> [docs/vr.md](docs/vr.md). Everything else below is upstream's README.
+
 > [!IMPORTANT]
 > **No game files are included.** You need your own legally obtained copy of *Tears of the Kingdom*, dumped from your own console: the base game and the 1.1.0, 1.2.1 or 1.4.3 update. Instructions for obtaining those files will not be provided.
 >

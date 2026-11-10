@@ -6,7 +6,7 @@ tools/game_sites.py): sead::LookAtCamera::doUpdateMatrix, where the view cameras
 matrix (the head goes on the camera there), and sead::PerspectiveProjection's matrix, where tan(fovy / 2) and the aspect
 are loaded (the headset's field of view goes there). This looks for the same instruction patterns in TotK's main and
 prints where they are, as module offsets with the instruction words there: what a `site` line of
-recomp/patches-v143.txt needs (recomp/patches.py). Nothing is written; nothing from the game is kept.
+recomp/patches-<ver>.txt needs (recomp/patches.py). Nothing is written; nothing from the game is kept.
 
   .venv\\Scripts\\python tools\\vr\\find_vr_sites.py <extracted exefs main>
 """
@@ -86,7 +86,7 @@ def main():
             found += 1
         if len(hits) > 1:
             print('  (more than one: the right one is the one the game calls every frame for its view camera)')
-    print(f'\n{found} site(s). They go into a "vr" set of recomp/patches-v143.txt as a bl to a host callback (as the '
+    print(f'\n{found} site(s). They go into a "vr" set of recomp/patches-<ver>.txt as a bl to a host callback (as the '
           'mouse_direct set does), with the camera code of Savage Wind VR (runtime/vr/vr_camera.c) behind it: '
           'docs/vr.md, "Head tracking and stereo".')
     return 0
