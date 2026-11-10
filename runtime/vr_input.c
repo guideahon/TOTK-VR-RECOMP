@@ -182,7 +182,13 @@ void vr_input_setup(XrSession session) {
         rt_log("vr: motion combat: slashes and stabs of the right hand attack (%s swing profile)%s",
             sw && !strcmp(sw, "easy") ? "easy" : "normal", in.shield_gesture ? "; the left hand raised guards" : "");
     in.ready = true;
-    // (no snap turning: it turns the view through the camera hook, which TotK does not have yet; docs/vr.md)
+    // TOTK_VR_TURN=snap: the right stick turns the view a step at once (TOTK_VR_SNAP_DEGREES, 45), through the head
+    // tracking's turn (vr_camera.c), instead of turning the game's camera smoothly
+    const char *turn = getenv("TOTK_VR_TURN");
+    in.pad.snap = turn && !strcmp(turn, "snap");
+    const char *deg = getenv("TOTK_VR_SNAP_DEGREES");
+    in.snap_deg = deg && atof(deg) >= 5 && atof(deg) <= 180 ? (float)atof(deg) : 45.0f;
+    if (in.pad.snap) rt_log("vr: snap turning: %.0f degrees a step", in.snap_deg);
     rt_log("vr: controllers: %d actions, bindings for %d kinds of controller (TOTK_VR_CONTROLLERS=0: off)",
         A_COUNT, suggested);
 }
@@ -272,6 +278,7 @@ static void update(void) {
     p.ltrigger = get_float(A_LTRIGGER), p.rtrigger = get_float(A_RTRIGGER);
     p.lgrip = get_float(A_LGRIP), p.rgrip = get_float(A_RGRIP);
     vr_pad_map(&in.pad, &p, now / 1e9, &in.out);
+    if (in.out.snap) vr_turn(-in.out.snap * in.snap_deg * 3.14159265f / 180);  // (right: clockwise from above)
     if (in.motion) motion(now / 1e9);
 }
 

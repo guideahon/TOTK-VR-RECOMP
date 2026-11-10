@@ -14,7 +14,7 @@ on at run time with `TOTK_VR=1`. A build without `--vr` has none of it and is th
 | 3 | Stereo: a frame per eye, the game's clock stepped across a pair | done on 1.2.1 (tested in play against fake_xr) |
 | 4 | HUD apart from the scene | not started (the HUD is drawn into each eye's picture for now) |
 | 5 | VR controllers as the game's controller | done (tested against fake_xr, not in the game) |
-| 6 | Comfort (snap turning ...) | not started |
+| 6 | Comfort: snap turning | snap turning done on 1.2.1 (fake_xr in play); vignette and others not yet |
 | 8 | Motion combat: slashes and stabs attack, the left hand raised guards (BetterVR's analysis) | done (tested against fake_xr, not in the game) |
 | 7, 9, 10 | Arms, performance, release | not started |
 
@@ -55,6 +55,7 @@ headset, or when the runtime ends or loses the session, the game goes on flat an
 | `TOTK_VR_SCREEN_WIDTH`, `_DISTANCE` | 3.0, 2.5 | the virtual screen (m) |
 | `TOTK_VR_HEAD` | 1 | `0`: no head tracking, the virtual screen only |
 | `TOTK_VR_STEREO` | 1 | `0`: mono, one picture for both eyes |
+| `TOTK_VR_TURN` | smooth | `snap`: the right stick turns the view in steps (`TOTK_VR_SNAP_DEGREES`, 45) |
 | `TOTK_FPS_LIMIT` | 60 | set it to 240 in VR: the game runs at twice the headset's rate in stereo |
 | `TOTK_VR_CONTROLLERS` | 1 | `0`: the VR controllers are not read |
 | `TOTK_VR_MOTION` | 1 | `0`: no motion combat |

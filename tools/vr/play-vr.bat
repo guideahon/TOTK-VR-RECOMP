@@ -11,6 +11,9 @@ set PATH=C:\msys64\ucrt64\bin;%PATH%
 set TOTK_VR=1
 rem Stereo draws a frame per eye: the game needs twice the headset's rate.
 set TOTK_FPS_LIMIT=240
+rem Turning with the right stick: smooth (the game's own) or snap (steps; less motion sickness).
+set TOTK_VR_TURN=smooth
+set TOTK_VR_SNAP_DEGREES=45
 rem The virtual screen: width and distance in metres.
 set TOTK_VR_SCREEN_WIDTH=3.0
 set TOTK_VR_SCREEN_DISTANCE=2.5
