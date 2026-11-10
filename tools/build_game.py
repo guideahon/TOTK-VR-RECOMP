@@ -103,6 +103,14 @@ GEN_FLAGS = ['-O1', '-fno-strict-aliasing', '-Wno-return-type', '-Wno-unused-lab
 RT_FLAGS = ['-O2', '-g', '-Wall', '-fno-strict-aliasing', '-march=x86-64-v3']
 
 
+def set_vr():
+    """--vr: the VR mode built in. The OpenXR headers are in runtime/third_party/openxr; the loader is the system's
+    (MSYS2 UCRT64 or the distribution's; the installer's llvm-mingw deps have none)."""
+    RT_FLAGS.extend(['-DTOTK_VR', f'-I {cmd_path(RUNTIME / "third_party" / "openxr")}'])
+    LINK_LIBS.append('-lopenxr_loader')
+    LLVM_LINK_LIBS.append('-lopenxr_loader')
+
+
 def set_cpu(cpu):
     """Target x86-64-v3 (the default) or x86-64-v2. RT_CPU_LEVEL lets runtime/main.c's self-test check the same
     instruction set the build was compiled for."""
@@ -830,10 +838,15 @@ def main():
                     help='profile-guided optimisation, generated code at -O2: gen builds an instrumented totk.exe '
                          '(needs --toolchain on Windows: MSYS2 clang ships no profile runtime); FILE builds with that '
                          '.profdata (tools/pgo.py merge)')
+    ap.add_argument('--vr', action='store_true',
+                    help='the VR mode (OpenXR, docs/vr.md): runtime/vr*.c built in (TOTK_VR) and linked with the '
+                         'OpenXR loader (MSYS2 mingw-w64-ucrt-x86_64-openxr-sdk); TOTK_VR=1 turns it on at run time')
     ap.add_argument('--expected', type=Path,
                     help='expected hashes (default tools/data/expected-<display version>.json)')
     args = ap.parse_args()
     set_cpu(args.cpu)
+    if args.vr:
+        set_vr()
 
     gen = (args.gen or ROOT / 'generated' / args.version).resolve()
     out = (args.out or ROOT / 'build' / args.version).resolve()

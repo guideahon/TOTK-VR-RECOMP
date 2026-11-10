@@ -9,6 +9,14 @@
 #include "cfg.h"
 #include "host.h"
 #include "vk.h"
+#include "vr.h"
+#ifndef TOTK_VR  // (a build without --vr: the plain Vulkan calls; tools/build_game.py --vr, runtime/vr.c)
+#define vr_vk_create_instance(ci, out) vkCreateInstance((ci), NULL, (out))
+#define vr_vk_physical_device(inst) ((void)(inst), (VkPhysicalDevice)VK_NULL_HANDLE)
+#define vr_vk_create_device(pd, ci, out) vkCreateDevice((pd), (ci), NULL, (out))
+#define vr_vk_session_start() ((void)0)
+#define vr_vk_release() ((void)0)
+#endif
 #include "platform/platform.h"
 #include "vk_dlaa.h"
 
@@ -149,7 +157,7 @@ static int create_instance(void) {
                                .enabledExtensionCount = n_ext, .ppEnabledExtensionNames = ext,
                                .enabledLayerCount = validate ? 1 : 0, .ppEnabledLayerNames = layers};
     rdoc_init();
-    VkResult r = vkCreateInstance(&ci, NULL, &g_vk.instance);
+    VkResult r = vr_vk_create_instance(&ci, &g_vk.instance);   // (VR: through the OpenXR runtime)
     if (r != VK_SUCCESS) { rt_log("vk: vkCreateInstance failed (%d); is a Vulkan 1.3 driver installed?", (int)r); return 0; }
     g_vk.validation = validate;
     if (validate || ab_want) {
@@ -212,6 +220,7 @@ static int pick_device(void) {
     int want = e && *e ? atoi(e) : -1;
     const char *name = cfg_get("TOTK_GPU_NAME");
     int best = -1, best_score = -1;
+    VkPhysicalDevice headset = vr_vk_physical_device(g_vk.instance);   // (VR: the GPU the headset is on, first)
     for (uint32_t i = 0; i < n; i++) {
         VkPhysicalDeviceProperties p;
         vkGetPhysicalDeviceProperties(pd[i], &p);
@@ -231,6 +240,7 @@ static int pick_device(void) {
         if (fam == UINT32_MAX) { rt_log("vk: gpu %u skipped: no graphics+compute+present queue family", i); continue; }
         int score = (int)i == want ? 100 : p.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU ? 3
                   : p.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU ? 2 : 1;
+        if (headset && pd[i] == headset) score = 200;
         if (score > best_score) { best_score = score; best = (int)i; }
     }
     if (best < 0) {
@@ -416,7 +426,7 @@ static int create_device(void) {
     }
     VkDeviceCreateInfo di = {.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO, .pNext = &c->f2, .queueCreateInfoCount = nqi,
                              .pQueueCreateInfos = qi, .enabledExtensionCount = n_ext, .ppEnabledExtensionNames = ext};
-    VkResult r = vkCreateDevice(g_vk.phys, &di, NULL, &g_vk.device);
+    VkResult r = vr_vk_create_device(g_vk.phys, &di, &g_vk.device);   // (VR: through the OpenXR runtime)
     free(c);
     if (r != VK_SUCCESS) { rt_log("vk: vkCreateDevice failed (%d)", (int)r); return 0; }
     vkGetDeviceQueue(g_vk.device, g_vk.gfx_family, 0, &g_vk.gfx_queue);
@@ -484,6 +494,7 @@ int vk_init(void) {
         if (create_instance() && pick_device() && create_device())
             g_ready = 1, vk_mem_host_probe(), vk_upload_pools_init(), vk_headroom_start(), vk_dlaa_init();
         else destroy_all();
+        if (g_ready) vr_vk_session_start();   // (VR: the session on gfx_queue)
     }
     int ok = g_ready;
     plat_mutex_unlock(&g_lock);
@@ -492,7 +503,7 @@ int vk_init(void) {
 
 void vk_shutdown(void) {
     plat_mutex_lock(&g_lock);
-    if (g_ready) { destroy_all(); g_ready = 0; }
+    if (g_ready) { vr_vk_release(); destroy_all(); g_ready = 0; }
     plat_mutex_unlock(&g_lock);
 }
 

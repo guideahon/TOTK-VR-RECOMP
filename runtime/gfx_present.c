@@ -26,6 +26,7 @@
 #include "platform/platform.h"
 #include "ui/menu.h"
 #include "vk.h"
+#include "vr.h"
 
 #define FRAMES 2
 #define MAX_IMAGES 16
@@ -585,6 +586,9 @@ void gfx_fit_rect(int cw, int ch, int dw, int dh, int out[4]) {
 
 static void present_image(VkImage src, VkImageLayout layout, VkFormat fmt, int w, int h, const int crop[4], int defer) {
     int general = layout == VK_IMAGE_LAYOUT_GENERAL;
+#ifdef TOTK_VR
+    vr_present(src, layout, fmt, w, h);   // (the game's frame to the headset: runtime/vr.c)
+#endif
     gfx_window_start();
     VkCtx *c = vk_ctx();
     plat_rmutex_lock(&g_pl);

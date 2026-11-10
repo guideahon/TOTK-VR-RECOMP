@@ -20,6 +20,7 @@
 #include "nvn_api.h"
 #include "ui/menu.h"
 #include "vk.h"
+#include "vr.h"
 #include "platform/platform.h"
 
 enum { STICK_MAX = 32767, STICK_DIR = 16384, TRIGGER_ON = 16384, RESCAN_MS = 1000 };
@@ -679,6 +680,9 @@ static void poll_merged(uint64_t *buttons, int32_t *lx, int32_t *ly, int32_t *rx
         else if (kbm_used) __atomic_store_n(&g_kbm_last, 1, __ATOMIC_RELAXED);
     }
     script_apply(&b, sl, sr);
+#ifdef TOTK_VR
+    vr_input_apply(&b, &sl[0], &sl[1], &sr[0], &sr[1]);   // (the VR controllers: runtime/vr_input.c)
+#endif
     rec_apply(b, sl, sr);
     // Minus and Plus held together (gamepad or keys) open or close the menu and never reach the game
     static int combo_held;
