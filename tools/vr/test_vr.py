@@ -46,7 +46,7 @@ def main():
             failed.append(name)
 
     # unit tests
-    for t in ('test_vr_math', 'test_vr_input_map', 'test_vr_melee'):
+    for t in ('test_vr_math', 'test_vr_pair', 'test_vr_input_map', 'test_vr_melee'):
         exe = out / (t + EXE)
         ok = run([cc, *cflags, *inc, '-o', str(exe), f'tests/vr/{t}.c', '-lm'])
         step(t, ok and run([str(exe)]))

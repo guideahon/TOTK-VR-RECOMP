@@ -4,9 +4,9 @@
 
 This repository is TotK Recomp (a native PC port of *Tears of the Kingdom*, built from your own game) with a PC-VR mode
 through OpenXR, ported from [BOTW VR Recomp](https://github.com/guideahon/BOTW-VR-RECOMP). It contains **no game files,
-keys or firmware**: you need your own copy, dumped from your own Nintendo Switch. Today the VR mode shows the game on
-a virtual screen in the headset, with the VR controllers and motion combat; head tracking and stereo are next
-([vr.md](vr.md), "Status").
+keys or firmware**: you need your own copy, dumped from your own Nintendo Switch. The VR mode shows menus and loading
+on a virtual screen, and in play the world in stereo with 6DOF head tracking (game 1.2.1 for now; 1.4.3 gets the
+virtual screen only), with VR controllers and motion combat ([vr.md](vr.md), "Status").
 
 ## 1. What you need
 
@@ -85,8 +85,8 @@ The settings are in [vr.md](vr.md), "What it does now".
 
 Este repositorio es TotK Recomp (port nativo de PC de *Tears of the Kingdom*, compilado desde tu propio juego) con un
 modo PC-VR por OpenXR. **No incluye archivos del juego, keys ni firmware**: necesitás tu copia, volcada de tu Switch.
-Hoy el modo VR muestra el juego en una pantalla virtual en el visor, con controles VR y combate con movimiento; head
-tracking y estéreo son lo siguiente.
+El modo VR muestra menús y cargas en una pantalla virtual y, jugando, el mundo en estéreo con head tracking 6DOF
+(juego 1.2.1 por ahora; con 1.4.3 sólo la pantalla virtual), con controles VR y combate con movimiento.
 
 1. **Qué necesitás**: tu TotK con update **1.2.1 o 1.4.3**, una Switch tuya con homebrew, Windows con AVX2 y Vulkan 1.3,
    ~60 GB libres (20 con la importación), y un visor con runtime OpenXR (Quest por Virtual Desktop con VDXR, etc.).

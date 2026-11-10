@@ -37,6 +37,7 @@
 #include "vr.h"
 #include "vr_internal.h"
 #include "vr_math.h"
+#include "vr_pair.h"
 #endif
 
 #define PROJ_NEAR 0x98
@@ -62,6 +63,8 @@ static inline __uint128_t fbits(float f) { uint32_t b; memcpy(&b, &f, 4); return
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 static struct {
     int head;              // -1 not read yet: TOTK_VR_HEAD (default 1)
+    int stereo;            // -1 not read yet: TOTK_VR_STEREO (default 1)
+    vr_pair pair;          // stereo: which eye each frame draws (vr_pair.h)
     bool have_neutral, recenter;
     vr_pose neutral;
     float turn;
@@ -75,7 +78,7 @@ static struct {
     vr_view q[QUEUE];
     unsigned q_head, q_count;
     uint64_t updates;
-} c = {.head = -1, .window_aspect = 16.0f / 9.0f};
+} c = {.head = -1, .stereo = -1, .window_aspect = 16.0f / 9.0f};
 
 static bool head_on(void) {
     if (c.head < 0) {
@@ -88,6 +91,33 @@ static bool head_on(void) {
 }
 
 bool vr_world_view(void) { return vr_enabled() && vr_session_running() && head_on(); }
+
+static bool stereo_on(void) {
+    if (c.stereo < 0) {
+        const char *e = getenv("TOTK_VR_STEREO");
+        c.stereo = !(e && *e == '0');
+        rt_log("vr: %s", c.stereo ? "stereo: a frame per eye, the game's clock stepped across a pair"
+                                  : "mono: one picture for both eyes (TOTK_VR_STEREO=0)");
+    }
+    return c.stereo;
+}
+
+// runtime/frame_rate.c frame_step_present: the step the next frame takes (seconds). In stereo the pair's frames split
+// the pair's time: the right frame takes the shortest step the game allows (min: TotK's physics fail on shorter ones),
+// the left one the rest, so the eyes see moments that far apart and the world keeps its speed. The next frame's eye is
+// fixed here, before its camera is set.
+double vr_frame_step(double step, double min) {
+    if (!vr_world_view() || !stereo_on()) {
+        pthread_mutex_lock(&lock);
+        vr_pair_reset(&c.pair);
+        pthread_mutex_unlock(&lock);
+        return step;
+    }
+    pthread_mutex_lock(&lock);
+    int eye = vr_pair_eye(&c.pair);
+    pthread_mutex_unlock(&lock);
+    return eye == 0 ? (2 * step - min > min ? 2 * step - min : min) : min;
+}
 
 void vr_recenter(void) {
     pthread_mutex_lock(&lock);
@@ -157,16 +187,19 @@ static void camera_lookat(float *f) {
         rt_log("vr: recentred: head at %.2f %.2f %.2f, heading %.1f deg", head.p.x, head.p.y, head.p.z,
                vr_quat_heading(head.q) * 57.29578f);
     }
+    int eye = stereo_on() ? vr_pair_camera(&c.pair) : -1;
     c.cam_set = true;
+    vr_pose view = eye >= 0 ? from_xr(v[eye].pose) : head;
     const float *gf = c.game;
     vr_vec3 geye = vr_v3(gf[0], gf[1], gf[2]);
     float yaw = vr_game_yaw_of(vr_v3(gf[3] - gf[0], gf[4] - gf[1], gf[5] - gf[2]));
     vr_anchor a = vr_anchor_recenter(c.neutral, geye, yaw + c.turn, 1.0f);
-    vr_lookat_from_view(a, head, f, f + 3, f + 6);
+    vr_lookat_from_view(a, view, f, f + 3, f + 6);
     memcpy(c.out, f, sizeof c.out);
     c.out_ok = true;
     float tx = 0, ty = 0;
     for (int i = 0; i < 2; i++) {
+        if (eye >= 0 && i != eye) continue;
         tx = fmaxf(tx, fmaxf(tanf(v[i].fov.angleRight), tanf(-v[i].fov.angleLeft)));
         ty = fmaxf(ty, fmaxf(tanf(v[i].fov.angleUp), tanf(-v[i].fov.angleDown)));
     }
@@ -175,7 +208,7 @@ static void camera_lookat(float *f) {
         if (tx / ty < wa) tx = ty * wa;
         else ty = tx / wa;
         c.tan_x = tx, c.tan_y = ty;
-        c.cur = (vr_view){true, -1, to_xr(head), {-atanf(tx), atanf(tx), atanf(ty), -atanf(ty)}};
+        c.cur = (vr_view){true, eye, to_xr(view), {-atanf(tx), atanf(tx), atanf(ty), -atanf(ty)}};
     }
     c.updates++;
     pthread_mutex_unlock(&lock);
@@ -320,6 +353,7 @@ void vr_present_mark(void) {
     vr_view v = c.cur;
     v.world = v.world && c.cam_set && vr_world_view();
     c.q[(c.q_head + c.q_count++) % QUEUE] = v;
+    if (stereo_on()) vr_pair_present(&c.pair, v.world);   // (the next frame: the other eye after a left one)
     c.cam_set = false;
     pthread_mutex_unlock(&lock);
 }
@@ -338,6 +372,7 @@ bool vr_present_take(vr_view *out) {
 }
 
 uint64_t vr_camera_updates(void) { return c.updates; }
+uint64_t vr_stereo_pairs(void) { return c.pair.pairs; }
 #endif
 
 static bool view_camera(const float *f) {

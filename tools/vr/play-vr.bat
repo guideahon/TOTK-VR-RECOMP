@@ -9,6 +9,8 @@ cd /d "%~dp0..\.."
 set PATH=C:\msys64\ucrt64\bin;%PATH%
 
 set TOTK_VR=1
+rem Stereo draws a frame per eye: the game needs twice the headset's rate.
+set TOTK_FPS_LIMIT=240
 rem The virtual screen: width and distance in metres.
 set TOTK_VR_SCREEN_WIDTH=3.0
 set TOTK_VR_SCREEN_DISTANCE=2.5

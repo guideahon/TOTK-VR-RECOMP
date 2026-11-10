@@ -31,6 +31,8 @@ void vr_window_aspect(float width_over_height);
 void vr_recenter(void);
 void vr_turn(float radians);
 uint64_t vr_camera_updates(void);
+uint64_t vr_stereo_pairs(void);
+double vr_frame_step(double step, double min);   // frame_rate.c: the next frame's step, split across a stereo pair
 
 void vr_input_setup(XrSession session);       // vr_input.c: the controllers' actions on the session
 void vr_stats(uint64_t *frames, uint64_t *rendered, int *state);

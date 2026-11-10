@@ -285,6 +285,9 @@ void frame_step_present(uint64_t display_ns, int interval) {
             for (unsigned i = 0; i < sample_count; i++) sum += samples[i];
             step = sum / sample_count;
             if (step < STEP_MIN_S) step = STEP_MIN_S;
+#ifdef TOTK_VR
+            { extern double vr_frame_step(double, double); step = vr_frame_step(step, STEP_MIN_S); }   // (stereo pairs)
+#endif
             step_store((float)step);
         }
     }

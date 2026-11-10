@@ -3,8 +3,10 @@
 // headset. Ported from Savage Wind VR (runtime/vr/vr.c, xr_vulkan.c); here the frame goes to the headset from
 // vk_present_blit with a command buffer of its own, under vk_queue_lock like every use of gfx_queue.
 //
-// Phase 1 only: the flat game on a quad layer (TOTK_VR_SCREEN_WIDTH / _DISTANCE, metres). Head tracking and stereo
-// need sites in the game's camera code (docs/vr.md, tools/vr/find_vr_sites.py).
+// Out of play the flat game goes on a quad layer, a virtual screen (TOTK_VR_SCREEN_WIDTH / _DISTANCE, metres). A frame
+// drawn with the head (vr_camera.c) goes on a projection layer: in mono one picture for both eyes, in stereo a pair of
+// frames, left then right, each copied to its eye's swapchain and shown together (one xrWaitFrame / xrEndFrame a
+// pair, so the game runs at twice the headset's rate).
 #ifdef TOTK_VR
 #include <stdio.h>
 #include <stdlib.h>
@@ -32,16 +34,24 @@ static PFN_xrCreateVulkanInstanceKHR CreateInstance;
 static PFN_xrGetVulkanGraphicsDevice2KHR GetDevice;
 static PFN_xrCreateVulkanDeviceKHR CreateDevice;
 
+enum { SC_SCREEN, SC_LEFT, SC_RIGHT, SC_COUNT };
+typedef struct {
+    XrSwapchain h;
+    VkFormat fmt;
+    VkExtent2D ext;
+    uint32_t n;
+    VkImage images[MAX_IMAGES];
+} swc;
+
 static struct {
     XrSession session;
     XrSpace local, view;
     XrSessionState state;
     bool running;
-    XrSwapchain sc;
-    VkFormat sc_fmt;        // the swapchain's format
-    VkExtent2D sc_ext;
-    uint32_t n;
-    VkImage images[MAX_IMAGES];
+    swc sc[SC_COUNT];       // the virtual screen (and mono), the left and right eyes
+    bool pair_open, left_ok;  // stereo: the left frame of a pair is in, its xrBeginFrame done
+    XrFrameState pair_fs;
+    vr_view left_view;
     VkPhysicalDevice phys;
     float screen_w, screen_dist;
     VkCommandPool pool;
@@ -241,19 +251,22 @@ void vr_vk_session_start(void) {
     vr_input_setup(g.session);
 }
 
-static void drop_swapchain(void) {
+static void drop_swapchains(void) {
     VkCtx *c = vk_ctx();
-    if (g.sc == XR_NULL_HANDLE) return;
+    bool any = false;
+    for (int k = 0; k < SC_COUNT; k++) any |= g.sc[k].h != XR_NULL_HANDLE;
+    if (!any) return;
     vk_queue_lock();
-    vkDeviceWaitIdle(c->device);  // (only on a resize or the end: its images may still be read)
+    vkDeviceWaitIdle(c->device);  // (only on a resize or the end: their images may still be read)
     vk_queue_unlock();
-    xrDestroySwapchain(g.sc);
-    g.sc = XR_NULL_HANDLE;
-    g.n = 0;
+    for (int k = 0; k < SC_COUNT; k++) {
+        if (g.sc[k].h) xrDestroySwapchain(g.sc[k].h);
+        g.sc[k] = (swc){0};
+    }
 }
 
 static void end_session(const char *why) {
-    drop_swapchain();
+    drop_swapchains();
     if (g.local) xrDestroySpace(g.local);
     if (g.view) xrDestroySpace(g.view);
     if (g.session) xrDestroySession(g.session);
@@ -313,34 +326,37 @@ static bool copyable(VkFormat f) {
            f == VK_FORMAT_R8G8B8A8_SRGB;
 }
 
-static bool make_swapchain(VkExtent2D ext, VkFormat want) {
+static const char *const sc_name[SC_COUNT] = {"virtual screen", "left eye", "right eye"};
+
+static bool make_swapchain(int k, VkExtent2D ext, VkFormat want) {
     uint32_t n = 0;
     int64_t formats[64];
     if (!vr_xr_ok(xrEnumerateSwapchainFormats(g.session, 64, &n, formats), "xrEnumerateSwapchainFormats")) return false;
     bool offered = false;
-    for (uint32_t k = 0; k < n; k++) offered |= formats[k] == want;
+    for (uint32_t i = 0; i < n; i++) offered |= formats[i] == want;
     if (!offered) {
         static bool said;
         if (!said) rt_log("vr: the runtime offers no swapchain in format %d: nothing for the headset", (int)want);
         said = true;
         return false;
     }
+    swc *sc = &g.sc[k];
     XrSwapchainCreateInfo ci = {XR_TYPE_SWAPCHAIN_CREATE_INFO, NULL, 0,
                                 XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT | XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT, want, 1,
                                 ext.width, ext.height, 1, 1, 1};
-    if (!vr_xr_ok(xrCreateSwapchain(g.session, &ci, &g.sc), "xrCreateSwapchain")) return false;
+    if (!vr_xr_ok(xrCreateSwapchain(g.session, &ci, &sc->h), "xrCreateSwapchain")) return false;
     XrSwapchainImageVulkanKHR imgs[MAX_IMAGES];
-    for (int k = 0; k < MAX_IMAGES; k++) imgs[k] = (XrSwapchainImageVulkanKHR){XR_TYPE_SWAPCHAIN_IMAGE_VULKAN_KHR};
-    if (!vr_xr_ok(xrEnumerateSwapchainImages(g.sc, MAX_IMAGES, &g.n, (XrSwapchainImageBaseHeader *)imgs),
+    for (int i = 0; i < MAX_IMAGES; i++) imgs[i] = (XrSwapchainImageVulkanKHR){XR_TYPE_SWAPCHAIN_IMAGE_VULKAN_KHR};
+    if (!vr_xr_ok(xrEnumerateSwapchainImages(sc->h, MAX_IMAGES, &sc->n, (XrSwapchainImageBaseHeader *)imgs),
                   "xrEnumerateSwapchainImages")) {
-        xrDestroySwapchain(g.sc);
-        g.sc = XR_NULL_HANDLE;
+        xrDestroySwapchain(sc->h);
+        sc->h = XR_NULL_HANDLE;
         return false;
     }
-    for (uint32_t k = 0; k < g.n; k++) g.images[k] = imgs[k].image;
-    g.sc_ext = ext;
-    g.sc_fmt = want;
-    rt_log("vr: virtual screen swapchain %ux%u format %d, %u images", ext.width, ext.height, (int)want, g.n);
+    for (uint32_t i = 0; i < sc->n; i++) sc->images[i] = imgs[i].image;
+    sc->ext = ext;
+    sc->fmt = want;
+    rt_log("vr: %s swapchain %ux%u format %d, %u images", sc_name[k], ext.width, ext.height, (int)want, sc->n);
     return true;
 }
 
@@ -356,104 +372,143 @@ static void barrier(VkCommandBuffer cb, VkImage img, VkImageLayout from, VkImage
     vkCmdPipelineBarrier2(cb, &di);
 }
 
+// the frame (src, in layout already: TRANSFER_SRC_OPTIMAL or GENERAL; its writes submitted earlier on gfx_queue) into
+// an image of swapchain k, made or remade for its size; false when nothing went there
+static bool copy_to(int k, VkImage src, VkImageLayout layout, VkFormat fmt, int w, int h) {
+    VkCtx *c = vk_ctx();
+    VkExtent2D ext = {(uint32_t)w, (uint32_t)h};
+    VkFormat want = srgb_twin(fmt);
+    swc *sc = &g.sc[k];
+    if (sc->h && (sc->ext.width != ext.width || sc->ext.height != ext.height || sc->fmt != want)) {
+        if (g.pair_open) return false;   // (a size change in the middle of a pair: the pair is dropped)
+        drop_swapchains();
+    }
+    uint32_t idx = 0;
+    XrSwapchainImageWaitInfo wi = {XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO, NULL, XR_INFINITE_DURATION};
+    if (!(sc->h || make_swapchain(k, ext, want)) ||
+        !vr_xr_ok(xrAcquireSwapchainImage(sc->h, NULL, &idx), "xrAcquireSwapchainImage") ||
+        !vr_xr_ok(xrWaitSwapchainImage(sc->h, &wi), "xrWaitSwapchainImage"))
+        return false;
+    unsigned s = g.slot++ % SLOTS;
+    vkWaitForFences(c->device, 1, &g.fence[s], VK_TRUE, UINT64_MAX);
+    vkResetFences(c->device, 1, &g.fence[s]);
+    VkCommandBuffer cb = g.cb[s];
+    vkResetCommandBuffer(cb, 0);
+    VkCommandBufferBeginInfo bi = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+                                   .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
+    vkBeginCommandBuffer(cb, &bi);
+    VkImage dst = sc->images[idx];
+    VkMemoryBarrier2 mb = {.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2, .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                           .srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT, .dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                           .dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT};
+    VkDependencyInfo mdi = {.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO, .memoryBarrierCount = 1, .pMemoryBarriers = &mb};
+    vkCmdPipelineBarrier2(cb, &mdi);
+    barrier(cb, dst, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_2_NONE, 0,
+            VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+    if (copyable(fmt)) {
+        VkImageCopy rg = {.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+                          .dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}, .extent = {ext.width, ext.height, 1}};
+        vkCmdCopyImage(cb, src, layout, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &rg);
+    } else {
+        VkImageBlit bl = {.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}, .srcOffsets = {{0, 0, 0}, {w, h, 1}},
+                          .dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}, .dstOffsets = {{0, 0, 0}, {w, h, 1}}};
+        vkCmdBlitImage(cb, src, layout, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &bl, VK_FILTER_NEAREST);
+    }
+    // the runtime takes its images back as colour attachments (XR_KHR_vulkan_enable2)
+    barrier(cb, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+            VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT);
+    vkEndCommandBuffer(cb);
+    VkSubmitInfo si = {.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &cb};
+    vk_queue_lock();
+    vkQueueSubmit(c->gfx_queue, 1, &si, g.fence[s]);
+    bool released = vr_xr_ok(xrReleaseSwapchainImage(sc->h, NULL), "xrReleaseSwapchainImage");
+    vk_queue_unlock();
+    return released;
+}
+
+static void end_frame(const XrFrameState *fs, const XrCompositionLayerBaseHeader *layer) {
+    const XrCompositionLayerBaseHeader *layers[1] = {layer};
+    XrFrameEndInfo ei = {XR_TYPE_FRAME_END_INFO, NULL, fs->predictedDisplayTime, XR_ENVIRONMENT_BLEND_MODE_OPAQUE,
+                         layer ? 1u : 0u, layers};
+    vk_queue_lock();  // (the runtime may use the queue in xrEndFrame)
+    vr_xr_ok(xrEndFrame(g.session, &ei), "xrEndFrame");
+    vk_queue_unlock();
+    if (layer) g.rendered++;
+    if (g.frames % 2000 == 0)
+        rt_log("vr: %llu headset frames, %llu shown, %llu with the head (stereo pairs %llu)", (unsigned long long)g.frames,
+               (unsigned long long)g.rendered, (unsigned long long)g.world, (unsigned long long)vr_stereo_pairs());
+}
+
+static void projection_view(XrCompositionLayerProjectionView *pv, const vr_view *v, int k, int w, int h) {
+    *pv = (XrCompositionLayerProjectionView){XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW};
+    pv->pose = v->pose;
+    pv->fov = v->fov;
+    pv->subImage.swapchain = g.sc[k].h;
+    pv->subImage.imageRect = (XrRect2Di){{0, 0}, {w, h}};
+}
+
 void vr_present(VkImage src, VkImageLayout layout, VkFormat fmt, int w, int h) {
     VkCtx *c = vk_ctx();
     if (!g.session || !c || !src || w <= 0 || h <= 0) return;
     poll_events();
     if (!g.running || !g.session) return;
+    vr_window_aspect((float)w / (float)h);
+    // what the frame was drawn as (vr_camera.c): with the head in play, for one eye or both, else the virtual screen
+    vr_view view;
+    bool world = vr_present_take(&view) && view.world;
+    int eye = world ? view.eye : -1;
+    XrCompositionLayerProjection proj = {XR_TYPE_COMPOSITION_LAYER_PROJECTION};
+    XrCompositionLayerProjectionView pv[2];
+    proj.space = g.local;
+    proj.viewCount = 2;
+    proj.views = pv;
+    if (eye == 1 && g.pair_open) {   // the right frame: the pair is shown
+        g.pair_open = false;
+        bool ok = g.pair_fs.shouldRender && g.left_ok && copy_to(SC_RIGHT, src, layout, fmt, w, h);
+        if (ok) {
+            projection_view(&pv[0], &g.left_view, SC_LEFT, w, h);
+            projection_view(&pv[1], &view, SC_RIGHT, w, h);
+            g.world++;
+        }
+        end_frame(&g.pair_fs, ok ? (const XrCompositionLayerBaseHeader *)&proj : NULL);
+        return;
+    }
+    if (g.pair_open) {   // a left frame not followed by its right one: nothing of it is shown
+        g.pair_open = false;
+        end_frame(&g.pair_fs, NULL);
+    }
     XrFrameState fs = {XR_TYPE_FRAME_STATE};
     if (!vr_xr_ok(xrWaitFrame(g.session, NULL, &fs), "xrWaitFrame")) return;  // (paces the game to the headset)
     if (!vr_xr_ok(xrBeginFrame(g.session, NULL), "xrBeginFrame")) return;
     g.last_display = fs.predictedDisplayTime;
     g.period = fs.predictedDisplayPeriod;
     g.frames++;
-    // what the frame was drawn as (vr_camera.c): with the head's view in play, a projection layer, the same picture
-    // for both eyes (mono) at the pose and field the camera was given; else the virtual screen
-    vr_window_aspect((float)w / (float)h);
-    vr_view view;
-    bool world = vr_present_take(&view) && view.world;
-    XrCompositionLayerQuad quad = {XR_TYPE_COMPOSITION_LAYER_QUAD};
-    XrCompositionLayerProjection proj = {XR_TYPE_COMPOSITION_LAYER_PROJECTION};
-    XrCompositionLayerProjectionView pv[2] = {{XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW},
-                                              {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW}};
-    const XrCompositionLayerBaseHeader *layers[1] = {world ? (const XrCompositionLayerBaseHeader *)&proj
-                                                           : (const XrCompositionLayerBaseHeader *)&quad};
-    uint32_t nl = 0;
-    VkExtent2D ext = {(uint32_t)w, (uint32_t)h};
-    VkFormat want = srgb_twin(fmt);
-    if (g.sc && (g.sc_ext.width != ext.width || g.sc_ext.height != ext.height || g.sc_fmt != want)) drop_swapchain();
-    uint32_t idx = 0;
-    XrSwapchainImageWaitInfo wi = {XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO, NULL, XR_INFINITE_DURATION};
-    if (fs.shouldRender && (g.sc || make_swapchain(ext, want)) &&
-        vr_xr_ok(xrAcquireSwapchainImage(g.sc, NULL, &idx), "xrAcquireSwapchainImage") &&
-        vr_xr_ok(xrWaitSwapchainImage(g.sc, &wi), "xrWaitSwapchainImage")) {
-        unsigned s = g.slot++ % SLOTS;
-        vkWaitForFences(c->device, 1, &g.fence[s], VK_TRUE, UINT64_MAX);
-        vkResetFences(c->device, 1, &g.fence[s]);
-        VkCommandBuffer cb = g.cb[s];
-        vkResetCommandBuffer(cb, 0);
-        VkCommandBufferBeginInfo bi = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-                                       .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
-        vkBeginCommandBuffer(cb, &bi);
-        VkImage dst = g.images[idx];
-        // the frame: in layout already (TRANSFER_SRC_OPTIMAL or GENERAL); its writes, submitted earlier on this
-        // queue, made visible to the copy
-        VkMemoryBarrier2 mb = {.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2, .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-                               .srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT, .dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-                               .dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT};
-        VkDependencyInfo mdi = {.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO, .memoryBarrierCount = 1, .pMemoryBarriers = &mb};
-        vkCmdPipelineBarrier2(cb, &mdi);
-        barrier(cb, dst, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_2_NONE, 0,
-                VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
-        if (copyable(fmt)) {
-            VkImageCopy rg = {.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-                              .dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}, .extent = {ext.width, ext.height, 1}};
-            vkCmdCopyImage(cb, src, layout, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &rg);
-        } else {
-            VkImageBlit bl = {.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-                              .srcOffsets = {{0, 0, 0}, {w, h, 1}},
-                              .dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-                              .dstOffsets = {{0, 0, 0}, {w, h, 1}}};
-            vkCmdBlitImage(cb, src, layout, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &bl, VK_FILTER_NEAREST);
-        }
-        // the runtime takes its images back as colour attachments (XR_KHR_vulkan_enable2)
-        barrier(cb, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-                VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT);
-        vkEndCommandBuffer(cb);
-        VkSubmitInfo si = {.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &cb};
-        vk_queue_lock();
-        vkQueueSubmit(c->gfx_queue, 1, &si, g.fence[s]);
-        bool released = vr_xr_ok(xrReleaseSwapchainImage(g.sc, NULL), "xrReleaseSwapchainImage");
-        vk_queue_unlock();
-        if (released && world) {
-            for (int e = 0; e < 2; e++) {
-                pv[e].pose = view.pose;
-                pv[e].fov = view.fov;
-                pv[e].subImage.swapchain = g.sc;
-                pv[e].subImage.imageRect = (XrRect2Di){{0, 0}, {w, h}};
-            }
-            proj.space = g.local;
-            proj.viewCount = 2;
-            proj.views = pv;
-            nl = 1;
-            g.rendered++;
-            g.world++;
-        } else if (released) {
-            quad.space = g.local;
-            quad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
-            quad.subImage.swapchain = g.sc;
-            quad.subImage.imageRect = (XrRect2Di){{0, 0}, {w, h}};
-            quad.pose = (XrPosef){{0, 0, 0, 1}, {0, 0, -g.screen_dist}};
-            quad.size = (XrExtent2Df){g.screen_w, g.screen_w * (float)h / (float)w};
-            nl = 1;
-            g.rendered++;
-        }
+    if (eye == 0) {   // the left frame: kept until the right one comes
+        g.left_ok = fs.shouldRender && copy_to(SC_LEFT, src, layout, fmt, w, h);
+        g.left_view = view;
+        g.pair_fs = fs;
+        g.pair_open = true;
+        return;
     }
-    XrFrameEndInfo ei = {XR_TYPE_FRAME_END_INFO, NULL, fs.predictedDisplayTime, XR_ENVIRONMENT_BLEND_MODE_OPAQUE, nl, layers};
-    vk_queue_lock();  // (the runtime may use the queue in xrEndFrame)
-    vr_xr_ok(xrEndFrame(g.session, &ei), "xrEndFrame");
-    vk_queue_unlock();
+    bool ok = fs.shouldRender && copy_to(SC_SCREEN, src, layout, fmt, w, h);
+    if (ok && world) {   // mono (or a right frame alone): the same picture for both eyes
+        projection_view(&pv[0], &view, SC_SCREEN, w, h);
+        projection_view(&pv[1], &view, SC_SCREEN, w, h);
+        g.world++;
+        end_frame(&fs, (const XrCompositionLayerBaseHeader *)&proj);
+        return;
+    }
+    XrCompositionLayerQuad quad = {XR_TYPE_COMPOSITION_LAYER_QUAD};
+    if (ok) {
+        quad.space = g.local;
+        quad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+        quad.subImage.swapchain = g.sc[SC_SCREEN].h;
+        quad.subImage.imageRect = (XrRect2Di){{0, 0}, {w, h}};
+        quad.pose = (XrPosef){{0, 0, 0, 1}, {0, 0, -g.screen_dist}};
+        quad.size = (XrExtent2Df){g.screen_w, g.screen_w * (float)h / (float)w};
+    }
+    end_frame(&fs, ok ? (const XrCompositionLayerBaseHeader *)&quad : NULL);
 }
 
 void vr_stats(uint64_t *frames, uint64_t *rendered, int *state) {
