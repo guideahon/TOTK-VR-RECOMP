@@ -50,7 +50,7 @@ static struct {
     unsigned slot;
     XrTime last_display;
     XrDuration period;
-    uint64_t frames, rendered;
+    uint64_t frames, rendered, world;
 } g;
 
 bool vr_enabled(void) { return enabled; }
@@ -367,8 +367,17 @@ void vr_present(VkImage src, VkImageLayout layout, VkFormat fmt, int w, int h) {
     g.last_display = fs.predictedDisplayTime;
     g.period = fs.predictedDisplayPeriod;
     g.frames++;
+    // what the frame was drawn as (vr_camera.c): with the head's view in play, a projection layer, the same picture
+    // for both eyes (mono) at the pose and field the camera was given; else the virtual screen
+    vr_window_aspect((float)w / (float)h);
+    vr_view view;
+    bool world = vr_present_take(&view) && view.world;
     XrCompositionLayerQuad quad = {XR_TYPE_COMPOSITION_LAYER_QUAD};
-    const XrCompositionLayerBaseHeader *layers[1] = {(const XrCompositionLayerBaseHeader *)&quad};
+    XrCompositionLayerProjection proj = {XR_TYPE_COMPOSITION_LAYER_PROJECTION};
+    XrCompositionLayerProjectionView pv[2] = {{XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW},
+                                              {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW}};
+    const XrCompositionLayerBaseHeader *layers[1] = {world ? (const XrCompositionLayerBaseHeader *)&proj
+                                                           : (const XrCompositionLayerBaseHeader *)&quad};
     uint32_t nl = 0;
     VkExtent2D ext = {(uint32_t)w, (uint32_t)h};
     VkFormat want = srgb_twin(fmt);
@@ -417,7 +426,20 @@ void vr_present(VkImage src, VkImageLayout layout, VkFormat fmt, int w, int h) {
         vkQueueSubmit(c->gfx_queue, 1, &si, g.fence[s]);
         bool released = vr_xr_ok(xrReleaseSwapchainImage(g.sc, NULL), "xrReleaseSwapchainImage");
         vk_queue_unlock();
-        if (released) {
+        if (released && world) {
+            for (int e = 0; e < 2; e++) {
+                pv[e].pose = view.pose;
+                pv[e].fov = view.fov;
+                pv[e].subImage.swapchain = g.sc;
+                pv[e].subImage.imageRect = (XrRect2Di){{0, 0}, {w, h}};
+            }
+            proj.space = g.local;
+            proj.viewCount = 2;
+            proj.views = pv;
+            nl = 1;
+            g.rendered++;
+            g.world++;
+        } else if (released) {
             quad.space = g.local;
             quad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
             quad.subImage.swapchain = g.sc;

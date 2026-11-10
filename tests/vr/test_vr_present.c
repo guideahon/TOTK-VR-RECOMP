@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "host.h"
 #include "vk.h"
 #include "vr.h"
 #include "vr_internal.h"
@@ -27,6 +28,11 @@ void rt_log(const char *fmt, ...) {
     fputc('\n', stdout);
     va_end(ap);
 }
+// (vr_camera.c's reverse-engineering scan, never on here)
+int frame_rate_player_pos(float xyz[3]) { return 0; }
+uint32_t mem_query(uint64_t a, RtMemoryInfo *out) { return 1; }
+int mem_guest_readable(uint64_t a, uint64_t n) { return 0; }
+const char *rt_guest_name(uint64_t pc, char *buf, int size) { return buf[0] = 0, buf; }
 #include <windows.h>
 uint64_t plat_now_ns(void) {
     LARGE_INTEGER f, c;

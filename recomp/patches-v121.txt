@@ -1115,3 +1115,15 @@ spin sdk 3d3250 3d3270   # 9 instructions; loads
 # goes in just before the rounding, as the community's shadow resolution mods do (1.1.0: mov w11, #1024 over the
 # computation). Found by a write watch on the size field (the writer was this function, and no other).
 site shadow main cec22c 11001d6b @page:x11 b9405d6b 11001d6b   # add w11, w11, #7 -> adrp x11, page; ldr w11, [x11, #92]; add w11, w11, #7
+
+# VR head tracking (runtime/vr_camera.c, docs/vr.md phase 2; on with TOTK_VR=1, which a build without --vr also
+# reaches: its host calls then only do the displaced loads). main+0xbb7f9c copies the renderer's sead::LookAtCamera
+# (x2, laid out as in BotW: view matrix +0x8, eye +0x38, at +0x44, up +0x50) into its view (x19 +0x78); the hook on its
+# first load (page +0xf60) puts the head on that camera and makes its matrix again. The perspective projection's
+# matrix (main+0xc7688c, next to it in the code as in BotW; tools/vr/find_vr_sites.py) loads tan(fovy / 2) and the aspect
+# through page +0xf50. The copy saves x30 in its prologue; the projection is a leaf, which leaves the site's return
+# address in x30 for its callers (lifted code returns by C return; harmless in every run so far, as callers keep x30 in
+# their frames).
+set vr       TOTK_VR             0
+site vr main bb8074 f9401c48 94edcfbb   # the view copies its LookAtCamera (x2): ldr x8, [x2, #0x38] (eye x, y)
+site vr main c76898 2d558801 94ead5ae   # perspective projection matrix: ldp s1, s2, [x0, #0xac]

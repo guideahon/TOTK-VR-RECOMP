@@ -714,6 +714,9 @@ NVN_API(nvnQueuePresentTexture) {
     uint64_t period = present_period(o), now = kern_now_ns();
     uint64_t slot = now + pace(&o->pace, now, period);
     nvn_sync_ahead_present();
+#ifdef TOTK_VR
+    { extern void vr_present_mark(void); vr_present_mark(); }   // vr_camera.c: what this frame was drawn as
+#endif
     gfx_backend()->present(t, o->crop, slot);
     o->ticket[idx] = o->presents;
     o->avail[idx] = cfg_bool("TOTK_FRAME_QUEUE") ? slot : slot + period;

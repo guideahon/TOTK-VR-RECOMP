@@ -246,6 +246,8 @@ static void speed_report(uint64_t now, double step, int interval) {
     memset(win_hist, 0, sizeof win_hist);
 }
 
+int frame_rate_player_pos(float xyz[3]) { return player_pos(xyz); }   // (vr_camera.c: the camera scan)
+
 static _Atomic int64_t world_us = -1;
 static _Atomic uint64_t game_us;   // game time stepped since the first present (frame_step_ticks)
 static uint64_t presents;
