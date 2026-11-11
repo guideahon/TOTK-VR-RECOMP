@@ -18,7 +18,8 @@ from the game; nothing is written outside the work folder.
   .venv\\Scripts\\python tools\\import_dump.py --exefs D:\\TOTK\\exefs --romfs D:\\TOTK\\romfs
   .venv\\Scripts\\python tools\\import_dump.py --exefs D:\\TOTK --romfs D:\\TOTK --exclude totk-pc-recomp
 
-With one folder holding both, the ExeFS files and the --exclude names are left out of the RomFS.
+With one folder holding both, only its top-level folders named as TotK's (a capital first letter) go into the RomFS,
+without the --exclude names.
 """
 import argparse
 import hashlib
@@ -73,13 +74,16 @@ def version_dir(e):
     return 'v' + e['display_version'].replace('.', '')
 
 
-def walk(romfs, skip):
+def walk(romfs, skip, shared=False):
+    """The RomFS files, sorted as the index wants them. shared: the folder also holds the ExeFS and maybe other things;
+    only its top-level folders named as TotK's are (AI, Actor, Pack, System, UI...: a capital first letter), no loose
+    file at the top."""
     out = []
     for dirpath, dirs, files in os.walk(romfs):
         rel = Path(dirpath).relative_to(romfs)
         if rel == Path('.'):
-            dirs[:] = [d for d in dirs if d not in skip]
-            files = [f for f in files if f not in skip]
+            dirs[:] = [d for d in dirs if d not in skip and (not shared or d[:1].isupper())]
+            files = [] if shared else [f for f in files if f not in skip]
         dirs.sort()
         for f in files:
             out.append(((rel / f).as_posix() if rel != Path('.') else f, Path(dirpath) / f))
@@ -102,14 +106,26 @@ def main():
     for n in EXEFS:
         shutil.copyfile(a.exefs / n, out / 'exefs' / n)
     skip = set(a.exclude)
-    if a.romfs.resolve() == a.exefs.resolve():
+    shared = a.romfs.resolve() == a.exefs.resolve()
+    if shared:
         skip |= set(EXEFS)
-    files = walk(a.romfs, skip)
+    files = walk(a.romfs, skip, shared)
     if not files:
         sys.exit(f'import_dump: no files in {a.romfs}')
     romfs = out / 'romfs'
     romfs.mkdir(exist_ok=True)
     image = romfs / 'romfs.bin'
+    # already packed from the same tree (same files, same sizes): kept, as packing again takes minutes
+    try:
+        old = json.loads((romfs / 'index.json').read_text())
+        same = image.is_file() and len(old['files']) == len(files) and all(
+            e['path'] == n and e['size'] == p.stat().st_size for e, (n, p) in zip(old['files'], files))
+    except Exception:
+        same = False
+    if same:
+        print(f'RomFS: {len(files):,} files, already packed in {image}')
+        print(f'done: {len(files):,} files. Next: recomp/gen.py --exefs {out / "exefs"} ... (docs/building.md, step 5)')
+        return 0
     tmp = image.with_suffix('.partial')
     h, index, pos = hashlib.sha256(), [], 0
     total = sum(p.stat().st_size for _, p in files)

@@ -54,6 +54,11 @@ TOTK-VR-RECOMP/              this repository
 
 ## 4. Building
 
+The easy way: run `Install TOTK VR.bat` at the repository's root. It asks for your ExeFS and RomFS folders (they may
+be one folder), checks them, installs what is missing (MSYS2 and its packages, uv and the Python environments, the
+.NET 10 SDK, Visual Studio's C++ build tools), imports them, builds everything with VR and writes `Play TOTK VR.bat`
+with your options, plus a desktop shortcut. By hand:
+
 As [building.md](building.md) says (MSYS2 UCRT64 clang, two Python environments), plus the OpenXR loader:
 `C:\msys64\usr\bin\pacman -S --needed mingw-w64-ucrt-x86_64-openxr-sdk`. Then, in PowerShell with
 `C:\msys64\ucrt64\bin` first on PATH:
@@ -97,7 +102,8 @@ El modo VR muestra menús y cargas en una pantalla virtual y, jugando, el mundo 
      tiene que ser el combinado (base + update). Si están en la misma carpeta:
      `--exefs D:\TOTK --romfs D:\TOTK --exclude totk-pc-recomp`.
 3. **Carpetas**: todo queda en `build\extracted\<ver>\` (`v121` = 1.2.1, `v143` = 1.4.3); git lo ignora.
-4. **Compilar**: los comandos de la sección 4 de arriba (con `--vr` en `build_game.py`).
+4. **Compilar**: lo fácil, `Install TOTK VR.bat` en la raíz del repo (elegís las carpetas, instala lo que falte,
+   importa, compila con VR y crea `Play TOTK VR.bat` y un acceso directo). A mano: los comandos de la sección 4.
 5. **Jugar**: abrí el runtime del visor y ejecutá `tools\vr\play-vr.bat`, o `set TOTK_VR=1` y `build\<ver>\totk.exe`.
 
 Nunca compartas los archivos del juego, tus keys ni nada de `build\` o `generated\`.

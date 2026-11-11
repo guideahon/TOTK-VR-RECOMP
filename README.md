@@ -5,8 +5,9 @@
 > [!NOTE]
 > **TOTK VR Recomp** is a fork of [TotK Recomp](https://github.com/valentderah/totk-pc-recomp) with a PC-VR mode
 > (OpenXR), ported from its sister project [BOTW VR Recomp](https://github.com/guideahon/BOTW-VR-RECOMP): the game on a
-> virtual screen out of play, 6DOF head tracking and stereo in play (1.2.1), VR controllers and motion combat. **Set it up from
-> zero, dumping your own game: [docs/vr-setup.md](docs/vr-setup.md)** (también en español). Status and what is missing:
+> virtual screen out of play, 6DOF head tracking and stereo in play (1.2.1), VR controllers and motion combat. **Install: run
+> `Install TOTK VR.bat`** (pick your extracted ExeFS / RomFS folders; it does the rest). Dumping your own game and
+> the manual way: [docs/vr-setup.md](docs/vr-setup.md) (también en español). Status and what is missing:
 > [docs/vr.md](docs/vr.md). Everything else below is upstream's README.
 
 > [!IMPORTANT]
