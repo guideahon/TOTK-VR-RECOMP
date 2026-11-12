@@ -47,6 +47,9 @@ extern "C" {
 #include "sysinfo.h"
 #include "ui/menu.h"
 #include "ui_text.h"
+#ifdef TOTK_VR
+const char *vr_status_text(void);   // runtime/vr.h (it pulls in Vulkan)
+#endif
 // host.h and vk.h pull in cpu.h, which is C only: the functions the menu needs from them, as declared there.
 void rt_log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 void vk_queue_lock(void);
@@ -386,7 +389,13 @@ extern "C" void menu_vk_release(void) {
 // TOTK_MENU_TEST_SET=<frame>:<key>=<value>[,<key>=<value>...][;<frame>:...]: cfg_set of each key (TOTK_ prefix
 // optional) at that presented frame; changes live settings with no input, menu open or not. totk.ini is written only by
 // the pseudo-key SAVE=1 (cfg_save, as a row change does; a failed write shows the menu's save note).
-enum { TAB_SCREEN, TAB_GAME, TAB_SOUND, TAB_CONTROLS, TAB_AMIIBO, TAB_MENU, TAB_ADVANCED, TAB_MODS, TAB_CHEATS, TAB_COUNT };
+enum {
+    TAB_SCREEN, TAB_GAME, TAB_SOUND, TAB_CONTROLS, TAB_AMIIBO, TAB_MENU, TAB_ADVANCED, TAB_MODS, TAB_CHEATS,
+#ifdef TOTK_VR
+    TAB_VR,   // (a build with --vr)
+#endif
+    TAB_COUNT
+};
 enum { TEST_PAGE_FRAMES = 30, TEST_SETS = 16 };
 struct TestSet { uint64_t frame; char key[64], value[64]; };
 static struct {
@@ -1078,7 +1087,11 @@ static void tab_advanced(float scale) {
 
 static const UiTextId kTabNames[TAB_COUNT] = {UI_MENU_TAB_SCREEN,   UI_MENU_TAB_GAME,   UI_MENU_TAB_SOUND,
                                               UI_MENU_TAB_CONTROLS, UI_MENU_TAB_AMIIBO, UI_MENU_TAB_MENU,
-                                              UI_MENU_TAB_ADVANCED, UI_MENU_TAB_MODS,   UI_MENU_TAB_CHEATS};
+                                              UI_MENU_TAB_ADVANCED, UI_MENU_TAB_MODS,   UI_MENU_TAB_CHEATS,
+#ifdef TOTK_VR
+                                              UI_VR_TAB,
+#endif
+};
 static int g_tab;               // the tab shown
 static int g_tab_request = -1;  // select this tab at the next layout; -1 none
 static int g_focus_page = -1;   // this tab's first row takes the cursor once it is shown; -1 none
@@ -1109,6 +1122,46 @@ static void mods_builtin_rows(void) {
     opt_button("##mods_quickmenu", UI_MENU_MODS_QUICKMENU, UI_MENU_MODS_QUICKMENU_DESC,
                menu_text(romfs_patches_loaded() ? UI_MENU_ON : UI_MENU_OFF));
 }
+
+#ifdef TOTK_VR
+// The VR tab: the [vr] keys of totk.ini (runtime/vr_options.h). The first three are read at start; the rest apply at
+// once (the VR code reads them every frame).
+static void tab_vr(float scale) {
+    opt_begin("##vr", scale);
+    char status[256];
+    snprintf(status, sizeof status, menu_text(UI_VR_STATUS), vr_status_text());
+    opt_text_str(status);
+    opt_toggle("TOTK_VR", UI_VR_ON, UI_VR_ON_DESC);
+    opt_toggle("TOTK_VR_HEAD", UI_VR_HEAD, UI_VR_HEAD_DESC);
+    opt_toggle("TOTK_VR_STEREO", UI_VR_STEREO, UI_VR_STEREO_DESC);
+    opt_group(UI_VR_GROUP_VIEW);
+    static const UiTextId views[] = {UI_VR_VIEW_FIRST, UI_VR_VIEW_THIRD};
+    opt_choice("TOTK_VR_VIEW", UI_VR_VIEW, views, 2, UI_VR_VIEW_DESC);
+    opt_slider("TOTK_VR_HEIGHT_OFFSET", UI_VR_HEIGHT, -50, 50, UI_VR_HEIGHT_DESC, 1, "%.0f cm");
+    opt_slider("TOTK_VR_THIRD_DISTANCE", UI_VR_THIRD_DISTANCE, 25, 300, UI_VR_THIRD_DISTANCE_DESC, 5, "%.0f %%");
+    opt_toggle("TOTK_VR_ASYMMETRIC", UI_VR_ASYMMETRIC, UI_VR_ASYMMETRIC_DESC);
+    opt_group(UI_VR_GROUP_CONTROLS);
+    static const UiTextId schemes[] = {UI_VR_CONTROLS_BETTERVR, UI_VR_CONTROLS_CLASSIC};
+    opt_choice("TOTK_VR_CONTROLS", UI_VR_CONTROLS, schemes, 2, UI_VR_CONTROLS_DESC);
+    opt_toggle("TOTK_VR_LEFT_HANDED", UI_VR_LEFT_HANDED, UI_VR_LEFT_HANDED_DESC);
+    static const UiTextId turns[] = {UI_VR_TURN_SMOOTH, UI_VR_TURN_SNAP, UI_VR_TURN_HEAD};
+    opt_choice("TOTK_VR_TURN", UI_VR_TURN, turns, 3, UI_VR_TURN_DESC);
+    opt_slider("TOTK_VR_SNAP_DEGREES", UI_VR_SNAP_DEGREES, 5, 180, UI_VR_SNAP_DEGREES_DESC, 5, "%.0f\xc2\xb0");
+    opt_slider("TOTK_VR_TURN_SPEED", UI_VR_TURN_SPEED, 20, 300, UI_VR_TURN_SPEED_DESC, 10, "%.0f %%");
+    static const UiTextId walks[] = {UI_VR_WALK_HEAD, UI_VR_WALK_CONTROLLER};
+    opt_choice("TOTK_VR_WALK", UI_VR_WALK, walks, 2, UI_VR_WALK_DESC);
+    opt_toggle("TOTK_VR_ROOMSCALE", UI_VR_ROOMSCALE, UI_VR_ROOMSCALE_DESC);
+    opt_toggle("TOTK_VR_RUMBLE", UI_VR_RUMBLE, UI_VR_RUMBLE_DESC);
+    opt_slider("TOTK_VR_RUMBLE_STRENGTH", UI_VR_RUMBLE_STRENGTH, 0, 400, UI_VR_RUMBLE_STRENGTH_DESC, 10, "%.0f %%");
+    opt_group(UI_VR_GROUP_COMBAT);
+    opt_toggle("TOTK_VR_MOTION", UI_VR_MOTION, UI_VR_MOTION_DESC);
+    static const UiTextId swings[] = {UI_VR_SWING_NORMAL, UI_VR_SWING_EASY};
+    opt_choice("TOTK_VR_SWING", UI_VR_SWING, swings, 2, UI_VR_SWING_DESC);
+    opt_toggle("TOTK_VR_SWING_ATTACK", UI_VR_SWING_ATTACK, UI_VR_SWING_ATTACK_DESC);
+    opt_toggle("TOTK_VR_SHIELD", UI_VR_SHIELD, UI_VR_SHIELD_DESC);
+    opt_end();
+}
+#endif
 
 static void tab_mods(float scale) {
     opt_begin("##mods", scale);
@@ -1239,6 +1292,9 @@ static void layout_menu(uint32_t w, uint32_t h, float scale) {
                 restart_confirm();
                 break;
             case TAB_ADVANCED: tab_advanced(scale); break;
+#ifdef TOTK_VR
+            case TAB_VR: tab_vr(scale); break;
+#endif
             }
             ImGui::EndTabItem();
         }

@@ -60,7 +60,11 @@ static const char *const known[] = {
     "SHOTS_FULL", "SPEED_PROBE", "SPIN", "SPIN_HANDOFF_US", "SPLIT_DRAWS", "SPLIT_US", "STICK_DEADZONE", "STICK_SENS",
     "SWKBD_ANSWER", "SYNC_AHEAD",
     "SWKBD_TEST", "TEST_OOM", "TEST_PAD", "TEST_PREPARE_SHADERS", "TEX_ALIAS", "TEX_BLOCK_MIB", "TEX_HEAP_EXTRA_MB", "TEX_MEMO", "TEX_RELEASED_MIB", "TEX_VRAM_PRESSURE", "TIMER_1MS", "TRACE", "TXD_TRANSPOSE", "UBO_SNAPSHOT", "UB_OVERLAY", "UB_OVERLAY_OUT", "UPSCALER", "VB_USED", "VK_DYN_A2C", "VK_DYN_VERTEX", "VK_NO_FLOAT64",
-    "VK_PRESENT", "VK_RECORDER", "VK_SSBO_ALIGN", "VK_SUBGROUP", "VK_SUBGROUP_PIN", "VK_VALIDATION", "VMA_BLOCK_MIB", "VOLUME", "VRAM_HEADROOM", "VRAM_LIMIT_MIB", "VS_OUTS",
+    "VK_PRESENT", "VK_RECORDER", "VK_SSBO_ALIGN", "VK_SUBGROUP", "VK_SUBGROUP_PIN", "VK_VALIDATION", "VMA_BLOCK_MIB", "VOLUME", "VRAM_HEADROOM", "VRAM_LIMIT_MIB",
+    "VR", "VR_ASYMMETRIC", "VR_CONTROLLERS", "VR_CONTROLS", "VR_HEAD", "VR_HEIGHT_OFFSET", "VR_LEFT_HANDED", "VR_MOTION",
+    "VR_ROOMSCALE", "VR_RUMBLE", "VR_RUMBLE_STRENGTH", "VR_SCREEN_DISTANCE", "VR_SCREEN_WIDTH", "VR_SHIELD", "VR_SNAP_DEGREES",
+    "VR_STEREO", "VR_SWING", "VR_SWING_ATTACK", "VR_THIRD_DISTANCE", "VR_TURN", "VR_TURN_SPEED", "VR_VIEW", "VR_WALK",
+    "VS_OUTS",
     "WALK_KEY", "WALK_SCALE", "WB_EXACT", "WB_FENCE_LIMIT", "WB_MERGE", "WINDOW_SIZE", "XLATE", "XLATE_ID", "XLATE_KEEP", "XLATE_PROCS",
     "ZSTD_CHECK", "ZSTD_NATIVE",
 };
@@ -82,6 +86,12 @@ static const struct { const char *key, *section; } sections[] = {
     {"DISCORD_RPC", "discord"}, {"DISCORD_APP_ID", "discord"}, {"DISCORD_IMAGE", "discord"},
     {"SHADOW_SCALE", "display"}, {"SHADOW_RANGE", "display"}, {"CONTACT_SHADOWS", "display"},
     {"PCSS", "display"},
+    {"VR", "vr"}, {"VR_ASYMMETRIC", "vr"}, {"VR_CONTROLLERS", "vr"}, {"VR_CONTROLS", "vr"}, {"VR_HEAD", "vr"},
+    {"VR_HEIGHT_OFFSET", "vr"}, {"VR_LEFT_HANDED", "vr"}, {"VR_MOTION", "vr"}, {"VR_ROOMSCALE", "vr"},
+    {"VR_RUMBLE", "vr"}, {"VR_RUMBLE_STRENGTH", "vr"}, {"VR_SCREEN_DISTANCE", "vr"}, {"VR_SCREEN_WIDTH", "vr"},
+    {"VR_SHIELD", "vr"}, {"VR_SNAP_DEGREES", "vr"}, {"VR_STEREO", "vr"}, {"VR_SWING", "vr"},
+    {"VR_SWING_ATTACK", "vr"}, {"VR_THIRD_DISTANCE", "vr"}, {"VR_TURN", "vr"}, {"VR_TURN_SPEED", "vr"},
+    {"VR_VIEW", "vr"}, {"VR_WALK", "vr"},
     {"MODS_DIR", "mods"}, {"MODS_ORDER", "mods"}, {"MODS_DISABLED", "mods"}, {"MODS_REBUILD", "mods"},
     {"TEX_HEAP_EXTRA_MB", "mods"},
     {"MENU_LANG", "language"}, {"LANG", "language"}, {"OPERATION_MODE", "language"},
@@ -193,6 +203,18 @@ static const CfgMeta metas[] = {
     {"WB_FENCE_LIMIT", "65536", "0..1073741824", RESTART}, {"WB_MERGE", "1", "0|1", RESTART}, {"WB_EXACT", "1", "0|1", RESTART},
     {"PASS_CRUMBS", "", "0|1", RESTART},   // vk_crumbs.c pass marks; unset: VK_AMD_buffer_marker only
     {"INPUT_RECORD", "", NULL, RESTART},
+    // VR (runtime/vr*.c, docs/vr.md; a build with --vr). Read live unless RESTART.
+    {"VR", "0", "0|1", RESTART}, {"VR_HEAD", "1", "0|1", RESTART}, {"VR_STEREO", "1", "0|1", RESTART},
+    {"VR_CONTROLLERS", "1", "0|1", RESTART}, {"VR_SCREEN_WIDTH", "3", "1..10", RESTART},
+    {"VR_SCREEN_DISTANCE", "2.5", "0.5..10", RESTART},
+    {"VR_VIEW", "first", "first|third", LIVE}, {"VR_HEIGHT_OFFSET", "0", "-50..50", LIVE},
+    {"VR_THIRD_DISTANCE", "100", "25..300", LIVE}, {"VR_ASYMMETRIC", "1", "0|1", LIVE},
+    {"VR_CONTROLS", "bettervr", "bettervr|classic", LIVE}, {"VR_LEFT_HANDED", "0", "0|1", LIVE},
+    {"VR_TURN", "smooth", "smooth|snap|head", LIVE}, {"VR_SNAP_DEGREES", "45", "5..180", LIVE},
+    {"VR_TURN_SPEED", "100", "20..300", LIVE}, {"VR_WALK", "head", "head|controller", LIVE},
+    {"VR_ROOMSCALE", "1", "0|1", LIVE}, {"VR_RUMBLE", "1", "0|1", LIVE}, {"VR_RUMBLE_STRENGTH", "100", "0..400", LIVE},
+    {"VR_MOTION", "1", "0|1", LIVE}, {"VR_SWING", "normal", "normal|easy", LIVE}, {"VR_SWING_ATTACK", "1", "0|1", LIVE},
+    {"VR_SHIELD", "1", "0|1", LIVE},
 };
 
 static int is_known(const char *key) {

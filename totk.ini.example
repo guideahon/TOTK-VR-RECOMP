@@ -436,3 +436,44 @@
 # names each dirty target that stays on the GPU ("fence write-back skipped-drawn-every-frame") and each one over 65536
 # bytes that went back ("over-default"). Raising it costs a copy per such target and wait.
 # wb_fence_limit = 65536
+
+[vr]
+# The VR mode (docs/vr.md), in a build made with --vr. vr = 1 turns it on (start the headset's OpenXR runtime first).
+# vr_head = 0: no head tracking, the game on a virtual screen only; vr_stereo = 0: one picture for both eyes;
+# vr_controllers = 0: the VR controllers are not read. The virtual screen (menus, loading) is vr_screen_width metres
+# wide (1 to 10), vr_screen_distance metres ahead (0.5 to 10). These are read at start; the rest apply at once and are
+# on the menu's VR tab.
+# vr = 0
+# vr_head = 1
+# vr_stereo = 1
+# vr_controllers = 1
+# vr_screen_width = 3
+# vr_screen_distance = 2.5
+# The view: first (the eye in Link's head, vr_height_offset cm higher or lower, -50 to 50) or third (the game's camera
+# behind him, its distance vr_third_distance percent of the game's own, 25 to 300). vr_asymmetric = 0 draws each eye
+# with a symmetric field instead of its own off-centre one.
+# vr_view = first
+# vr_height_offset = 0
+# vr_third_distance = 100
+# vr_asymmetric = 1
+# Controls: bettervr (BetterVR's scheme and body gestures, docs/vr.md) or classic (a gamepad's layout on the VR
+# controllers). vr_left_handed = 1 swaps the hands' roles.
+# vr_controls = bettervr
+# vr_left_handed = 0
+# Turning: smooth (the right stick, at vr_turn_speed percent, 20 to 300), snap (steps of vr_snap_degrees, 5 to 180) or
+# head (the body follows the head only). vr_walk: the left stick walks the way the head looks (head) or the left
+# controller points (controller). vr_roomscale = 1: walking in the room walks Link (first person).
+# vr_turn = smooth
+# vr_snap_degrees = 45
+# vr_turn_speed = 100
+# vr_walk = head
+# vr_roomscale = 1
+# The game's rumble on the VR controllers (vr_rumble_strength percent, 0 to 400).
+# vr_rumble = 1
+# vr_rumble_strength = 100
+# Motion combat: the right hand's slashes and stabs attack (vr_swing = easy: slower swings count; vr_swing_attack = 0:
+# they do not press attack), the left hand raised guards (vr_shield).
+# vr_motion = 1
+# vr_swing = normal
+# vr_swing_attack = 1
+# vr_shield = 1
