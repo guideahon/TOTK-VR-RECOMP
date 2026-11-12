@@ -13,8 +13,10 @@ on at run time with `TOTK_VR=1`. A build without `--vr` has none of it and is th
 | 2 | Head tracking: the head on the game's camera, the headset's field of view | done on 1.2.1 (tested in play against fake_xr) |
 | 3 | Stereo: a frame per eye, the game's clock stepped across a pair | done on 1.2.1 (tested in play against fake_xr) |
 | 4 | HUD apart from the scene | not started (the HUD is drawn into each eye's picture for now) |
+| 4b | First person (the eye in Link's head), third-person distance, roomscale, each eye's off-centre field, the desktop window showing one eye | done on 1.2.1 (fake_xr in play) |
 | 5 | VR controllers as the game's controller | done (tested against fake_xr, not in the game) |
-| 6 | Comfort: snap turning | snap turning done on 1.2.1 (fake_xr in play); vignette and others not yet |
+| 6 | Comfort: snap, smooth at a speed or head-only turning, walking by the controller, left-handed | done (fake_xr) |
+| 6b | BetterVR's control scheme and body gestures, haptics, the game's rumble on the controllers, the settings on the menu's VR tab | done (fake_xr; docs/vr-checklist.md for the headset) |
 | 8 | Motion combat: slashes and stabs attack, the left hand raised guards (BetterVR's analysis) | done (tested against fake_xr, not in the game) |
 | 7, 9, 10 | Arms, performance, release | not started |
 
@@ -49,18 +51,34 @@ headset, or when the runtime ends or loses the session, the game goes on flat an
 | left grip + right stick | d-pad | slash / stab (right hand) | Y |
 | left hand raised in front of the face | ZL (guard) | | |
 
-| Variable | Default | |
+Every setting is a `[vr]` key of totk.ini (totk.ini.example lists them), a row of the menu's **VR** tab (F1; all but
+the first three apply at once) or a `TOTK_VR_*` variable, which wins (`vr_view` is `TOTK_VR_VIEW`).
+
+| Key | Default | |
 |---|---|---|
-| `TOTK_VR` | 0 | `1`: VR on |
-| `TOTK_VR_SCREEN_WIDTH`, `_DISTANCE` | 3.0, 2.5 | the virtual screen (m) |
-| `TOTK_VR_HEAD` | 1 | `0`: no head tracking, the virtual screen only |
-| `TOTK_VR_STEREO` | 1 | `0`: mono, one picture for both eyes |
-| `TOTK_VR_TURN` | smooth | `snap`: the right stick turns the view in steps (`TOTK_VR_SNAP_DEGREES`, 45) |
+| `vr` | 0 | `1`: VR on |
+| `vr_head`, `vr_stereo`, `vr_controllers` | 1 | `0`: the virtual screen only / one picture for both eyes / the VR controllers not read |
+| `vr_screen_width`, `_distance` | 3.0, 2.5 | the virtual screen (m) |
+| `vr_view` | first | `third`: the game's camera behind Link |
+| `vr_height_offset` | 0 | first person: the eye this many cm higher (-50..50) |
+| `vr_third_distance` | 100 | third person: the camera's distance, % of the game's (25..300) |
+| `vr_asymmetric` | 1 | `0`: each eye a symmetric field instead of its own off-centre one |
+| `vr_controls` | bettervr | `classic`: the table below instead of BetterVR's scheme and gestures |
+| `vr_left_handed` | 0 | `1`: the hands' roles swapped |
+| `vr_turn` | smooth | `snap` (steps of `vr_snap_degrees`, 45) or `head` (the stick does not turn, first person) |
+| `vr_turn_speed` | 100 | smooth turning, % |
+| `vr_walk` | head | `controller`: the left stick walks the way the left controller points |
+| `vr_roomscale` | 1 | first person: walking in the room walks Link |
+| `vr_rumble`, `vr_rumble_strength` | 1, 100 | the game's rumble on the VR controllers, % |
+| `vr_motion`, `vr_swing`, `vr_swing_attack`, `vr_shield` | 1, normal, 1, 1 | motion combat (`vr_swing = easy`: slower swings count) |
 | `TOTK_FPS_LIMIT` | 60 | set it to 240 in VR: the game runs at twice the headset's rate in stereo |
-| `TOTK_VR_CONTROLLERS` | 1 | `0`: the VR controllers are not read |
-| `TOTK_VR_MOTION` | 1 | `0`: no motion combat |
-| `TOTK_VR_SWING` | normal | `easy`: slower swings count |
-| `TOTK_VR_SHIELD` | 1 | `0`: raising the left hand does not guard |
+
+BetterVR's scheme (runtime/vr_gestures.h, from Savage Wind VR): a grip over the right shoulder takes out the weapon
+(held: its quick menu), over the left shoulder the bow (held: shields or bows), at the left hip the ability (L; held:
+the abilities' wheel), both hands at the mouth whistle; the right trigger uses what is in hand, right A grabs (held:
+run), right B jumps, left Y the ability (held: its wheel), the stick clicks crouch / scope and inventory / map. The
+table above is the classic scheme. What is still to port from BotW, and why: [vr-parity.md](vr-parity.md); what to try
+on a headset: [vr-checklist.md](vr-checklist.md).
 
 ## Building and playing
 
@@ -107,9 +125,14 @@ None needs the game: `.venv\Scripts\python tools\vr\test_vr.py` (MSYS2 UCRT64 cl
 | `test_vr_pair` | the stereo pair's state machine in every order of clock and camera |
 | `test_vr_input_map` | each controller input's game button or stick |
 | `test_vr_melee` | slashes and stabs against slow motions; the shield gesture |
+| `test_vr_gestures` | BetterVR's body slots and scheme, TotK's ability wheel on L |
+| `test_vr_options` | the `[vr]` settings parsed, live changes, the tests' defaults kept in step with cfg.c |
 | `test_fake_xr_session`, `_vulkan`, `_loader` | fake_xr, the scripted OpenXR runtime, driven directly, with Vulkan, and through the system's loader |
 | `test_vr_present` | runtime/vr.c and vr_input.c end to end against fake_xr: the instance and device through the runtime, the session, frames of a known colour to the virtual screen, read back from fake_xr's capture |
 | compile checks | vk_device.c, gfx_present.c, input.c, vr.c, vr_input.c, vr_camera.c with and without `TOTK_VR`, `-Werror` |
+
+`tools/vr/test_vr_frustum.py --input <script>` runs the game three times against fake_xr (symmetric field, the eye's own,
+the offset's sign flipped) and checks that the eye's own lines up with the symmetric picture and the flipped one does not.
 
 fake_xr (`tools/vr/fake_xr/`) and how to script it: Savage Wind VR's docs/VR.md, "fake_xr".
 
@@ -119,7 +142,8 @@ fake_xr (`tools/vr/fake_xr/`) and how to script it: Savage Wind VR's docs/VR.md,
 |---|---|
 | `runtime/vr.c`, `vr.h`, `vr_internal.h` | the instance, the headset, Vulkan through the runtime, the session, the virtual screen |
 | `runtime/vr_camera.c`, `vr_pair.h` | head tracking and stereo: the camera and projection hooks, the pairs, the camera scan |
-| `runtime/vr_input.c`, `vr_input_map.h` | the controllers and motion combat |
+| `runtime/vr_input.c`, `vr_input_map.h`, `vr_gestures.h` | the controllers, BetterVR's scheme and gestures, motion combat, rumble |
+| `runtime/vr_options.c`, `vr_options.h` | the `[vr]` settings, parsed once per change |
 | `runtime/vr_math.h`, `vr_melee.h` | the math; BetterVR's swing analysis (MIT) |
 | `runtime/third_party/openxr/` | the Khronos OpenXR headers (Apache 2.0) |
 | `runtime/vk_device.c`, `gfx_present.c`, `input.c`, `nvn_api_obj.c`, `frame_rate.c` | the hooks, each behind `TOTK_VR` |
