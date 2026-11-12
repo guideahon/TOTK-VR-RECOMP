@@ -244,6 +244,29 @@ static XrResult get_state(XrSession h, const XrActionStateGetInfo *gi, XrActionT
     return XR_SUCCESS;
 }
 
+// haptics: each pulse logged ("haptic <hand path> amplitude <a> duration <ns>") for the tests
+static XrResult XRAPI_CALL fx_ApplyHapticFeedback(XrSession h, const XrHapticActionInfo *hi,
+                                                   const XrHapticBaseHeader *fb) {
+    session *s = get_session(h);
+    if (!s) return XR_ERROR_HANDLE_INVALID;
+    if (!hi || hi->type != XR_TYPE_HAPTIC_ACTION_INFO || !fb) return XR_ERROR_VALIDATION_FAILURE;
+    action *a = get_action(hi->action);
+    if (!a) return XR_ERROR_HANDLE_INVALID;
+    if (!a->set->attached) return XR_ERROR_ACTIONSET_NOT_ATTACHED;
+    if (a->type != XR_ACTION_TYPE_VIBRATION_OUTPUT) return XR_ERROR_ACTION_TYPE_MISMATCH;
+    if (fb->type != XR_TYPE_HAPTIC_VIBRATION) return XR_ERROR_VALIDATION_FAILURE;
+    const XrHapticVibration *v = (const XrHapticVibration *)fb;
+    logf_(s->inst, "haptic %s amplitude %.2f duration %lld\n", hi->subactionPath ? path_name(hi->subactionPath) : "both",
+          v->amplitude, (long long)v->duration);
+    return XR_SUCCESS;
+}
+
+static XrResult XRAPI_CALL fx_StopHapticFeedback(XrSession h, const XrHapticActionInfo *hi) {
+    if (!get_session(h)) return XR_ERROR_HANDLE_INVALID;
+    if (!hi || hi->type != XR_TYPE_HAPTIC_ACTION_INFO) return XR_ERROR_VALIDATION_FAILURE;
+    return get_action(hi->action) ? XR_SUCCESS : XR_ERROR_HANDLE_INVALID;
+}
+
 static XrResult XRAPI_CALL fx_GetActionStateBoolean(XrSession h, const XrActionStateGetInfo *gi,
                                                      XrActionStateBoolean *st) {
     action *a;

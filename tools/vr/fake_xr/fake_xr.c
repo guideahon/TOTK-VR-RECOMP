@@ -606,6 +606,8 @@ static const char *layer_kind(XrStructureType t) {
     }
 }
 
+static vr_pose space_at(space *sp, XrTime t);
+
 static XrResult XRAPI_CALL fx_EndFrame(XrSession h, const XrFrameEndInfo *ei) {
     session *s = get_session(h);
     if (!s) return XR_ERROR_HANDLE_INVALID;
@@ -639,6 +641,19 @@ static XrResult XRAPI_CALL fx_EndFrame(XrSession h, const XrFrameEndInfo *ei) {
     g_stats.last_layer_count = ei->layerCount;
     logf_(s->inst, "frame %llu display_time %lld layers %u %s\n", (unsigned long long)s->frame,
           (long long)ei->displayTime, ei->layerCount, kinds);
+    static int log_quads = -1;  // FAKE_XR_LOG_QUADS=1: each quad layer's space, its centre in the room and its size
+    if (log_quads < 0) log_quads = getenv("FAKE_XR_LOG_QUADS") && *getenv("FAKE_XR_LOG_QUADS") == '1';
+    for (uint32_t i = 0; log_quads && i < ei->layerCount; i++) {
+        if (ei->layers[i]->type != XR_TYPE_COMPOSITION_LAYER_QUAD) continue;
+        const XrCompositionLayerQuad *q = (const XrCompositionLayerQuad *)ei->layers[i];
+        space *sp = get_space(q->space);
+        vr_pose in_space = {{q->pose.orientation.x, q->pose.orientation.y, q->pose.orientation.z, q->pose.orientation.w},
+                            {q->pose.position.x, q->pose.position.y, q->pose.position.z}};
+        vr_pose room = vr_pose_mul(space_at(sp, ei->displayTime), in_space);
+        logf_(s->inst, "quad %u space %s at %.3f %.3f %.3f size %.3f %.3f\n", i,
+              sp->type == XR_REFERENCE_SPACE_TYPE_VIEW && !sp->hand ? "view" : "local", room.p.x, room.p.y, room.p.z,
+              q->size.width, q->size.height);
+    }
     if (!s->synced && s->state == XR_SESSION_STATE_READY) {  // the first frame: the session comes to the front
         s->synced = true;
         queue_state(s, XR_SESSION_STATE_SYNCHRONIZED);
@@ -807,7 +822,7 @@ static const proc procs[] = {
     P(StringToPath), P(PathToString), P(CreateActionSet), P(DestroyActionSet), P(CreateAction), P(DestroyAction),
     P(SuggestInteractionProfileBindings), P(AttachSessionActionSets), P(SyncActions), P(GetActionStateBoolean),
     P(GetActionStateFloat), P(GetActionStateVector2f), P(GetCurrentInteractionProfile), P(GetActionStatePose),
-    P(CreateActionSpace),
+    P(CreateActionSpace), P(ApplyHapticFeedback), P(StopHapticFeedback),
 };
 #undef P
 

@@ -8,6 +8,12 @@
 //     watching its writers: TOTK_VR_SCAN, TOTK_VR_WATCH below).
 //   - the perspective projection's matrix (main+0xc76898, ldp s1, s2, [x0, #0xac]: tan(fovy / 2) and the aspect):
 //     the host call loads them, and in VR gives the headset's field instead for the world's camera.
+//   - its centre (main+0xc768a0, ldp s4, s5, [x0, #0xb4]: sead's offset, fractions of the near plane's width and
+//     height): in stereo each eye's off-centre field (vr_asymmetric), as Savage Wind VR's vr_persp_offset.
+//
+// On top of the game's camera, as Savage Wind VR does (BetterVR's options): first person puts the eye in Link's head
+// (frame_rate_player_pos, vr_height_offset); third person moves the game's camera toward or away from him
+// (vr_third_distance); roomscale walks Link toward where the player's head went in the room (vr_roomscale_stick).
 //
 // The world's view cameras then take the head's pose on top of the game's own camera, as in Savage Wind: the game's
 // camera keeps its place and heading, the head adds its turn and its movement since the last recentring and gives the
@@ -38,11 +44,14 @@
 #include "vr_internal.h"
 #include "vr_math.h"
 #include "vr_pair.h"
+#include "vr_options.h"
+#include "cfg.h"
 #endif
 
 #define PROJ_NEAR 0x98
 #define PROJ_FAR 0x9c
 #define PROJ_TAN 0xac
+#define PROJ_OFFSET 0xb4
 
 static int log_left = -1, plog_left = -1;
 static int log_budget(void) {
@@ -75,15 +84,26 @@ static struct {
     bool cam_set;
     vr_view cur;
     float tan_x, tan_y;
+    float off_x, off_y;    // the frustum's centre off the view's axis (tan units; 0: symmetric)
+    bool fp_now;           // the last camera was set in first person
+    float eye_height, forward;  // first person: the eye above Link's feet, and ahead of his head's centre (m)
+    struct {               // roomscale: Link walked under the head (vr_roomscale_stick)
+        bool driving, have_lp;
+        float lp[3];       // Link's position at the last camera
+        float x, y;        // the walk stick it asks for (-1..1; y ahead)
+        uint64_t frames;   // cameras it walked him on
+    } rs;
+    uint64_t fp_cameras, offset_calls;   // (for the log: cameras put in Link's head, off-centre projections)
+    vr_anchor anchor;      // the tracking space -> the game's world, as the last camera used it
+    bool anchor_ok;
     vr_view q[QUEUE];
     unsigned q_head, q_count;
     uint64_t updates;
-} c = {.head = -1, .stereo = -1, .window_aspect = 16.0f / 9.0f};
+} c = {.head = -1, .stereo = -1, .window_aspect = 16.0f / 9.0f, .eye_height = 1.55f, .forward = 0.18f};
 
 static bool head_on(void) {
     if (c.head < 0) {
-        const char *e = getenv("TOTK_VR_HEAD");
-        c.head = !(e && *e == '0');
+        c.head = cfg_bool("TOTK_VR_HEAD");
         rt_log("vr: head tracking %s", c.head ? "on (the world's view cameras follow the headset)"
                                               : "off (TOTK_VR_HEAD=0): the virtual screen only");
     }
@@ -94,8 +114,7 @@ bool vr_world_view(void) { return vr_enabled() && vr_session_running() && head_o
 
 static bool stereo_on(void) {
     if (c.stereo < 0) {
-        const char *e = getenv("TOTK_VR_STEREO");
-        c.stereo = !(e && *e == '0');
+        c.stereo = cfg_bool("TOTK_VR_STEREO");
         rt_log("vr: %s", c.stereo ? "stereo: a frame per eye, the game's clock stepped across a pair"
                                   : "mono: one picture for both eyes (TOTK_VR_STEREO=0)");
     }
@@ -165,7 +184,44 @@ static bool near9(const float *a, const float *b) {
     return true;
 }
 
-// a view camera (eye off the origin, up near +y): f = eye[3], at[3], up[3]; mono (one view for both eyes)
+// ---- roomscale (BetterVR's: the player walking in the room walks Link) ----
+// In first person, with the head more than 10 cm (horizontally) from Link's eye, the walk stick is pushed toward it,
+// harder the farther (full at 40 cm), until it is within 4 cm: the game walks Link there, with its own collisions. The
+// eye stays at the head meanwhile (camera_lookat moves the neutral head with Link). vr_roomscale = 0: off.
+static void roomscale(vr_anchor a, vr_pose head, vr_vec3 geye, const float *lp, const float *f) {
+    if (c.fp_now) memcpy(c.rs.lp, lp, sizeof c.rs.lp), c.rs.have_lp = true;
+    else c.rs.have_lp = false;
+    vr_vec3 hw = vr_xr_to_game_point(a, head.p);
+    float gx = hw.x - geye.x, gz = hw.z - geye.z, d = sqrtf(gx * gx + gz * gz);
+    bool on = c.fp_now && vr_options()->roomscale;
+    if (!on || d < 0.04f) c.rs.driving = false;
+    else if (d > 0.10f) c.rs.driving = true;
+    if (!c.rs.driving) {
+        c.rs.x = c.rs.y = 0;
+        return;
+    }
+    // the stick in the view's frame: ahead along the drawn view's heading, right across it
+    float vy = vr_game_yaw_of(vr_v3(f[3] - f[0], 0, f[5] - f[2]));
+    float ahead = (gx * sinf(vy) + gz * cosf(vy)) / d, right = (-gx * cosf(vy) + gz * sinf(vy)) / d;
+    float m = (d - 0.04f) / 0.36f;
+    m = m < 0.3f ? 0.3f : m > 1 ? 1 : m;
+    c.rs.x = right * m, c.rs.y = ahead * m;
+    c.rs.frames++;
+}
+
+// vr_input.c: the walk stick roomscale asks for now (false: none)
+bool vr_roomscale_stick(float *x, float *y) {
+    pthread_mutex_lock(&lock);
+    bool on = c.rs.driving && vr_world_view();
+    *x = c.rs.x, *y = c.rs.y;
+    pthread_mutex_unlock(&lock);
+    return on;
+}
+uint64_t vr_roomscale_frames(void) { return c.rs.frames; }
+
+extern int frame_rate_player_pos(float xyz[3]);
+
+// a view camera (eye off the origin, up near +y): f = eye[3], at[3], up[3]
 static void camera_lookat(float *f) {
     if (!vr_world_view()) {
         c.out_ok = false;
@@ -190,29 +246,83 @@ static void camera_lookat(float *f) {
     int eye = stereo_on() ? vr_pair_camera(&c.pair) : -1;
     c.cam_set = true;
     vr_pose view = eye >= 0 ? from_xr(v[eye].pose) : head;
+    const vr_options_t *o = vr_options();
     const float *gf = c.game;
     vr_vec3 geye = vr_v3(gf[0], gf[1], gf[2]);
     float yaw = vr_game_yaw_of(vr_v3(gf[3] - gf[0], gf[4] - gf[1], gf[5] - gf[2]));
+    // first person: the neutral head goes to Link's eyes, a little ahead of his head (out of its model), facing the
+    // game camera's way; third person: the game's camera moved along the line to his head (BetterVR's
+    // ThirdPlayerDistance)
+    float lp[3];
+    bool have_lp = frame_rate_player_pos(lp);
+    c.fp_now = false;
+    if (o->first_person && have_lp) {
+        geye = vr_v3(lp[0] + sinf(yaw + c.turn) * c.forward, lp[1] + c.eye_height + o->height_cm / 100.0f,
+                     lp[2] + cosf(yaw + c.turn) * c.forward);
+        c.fp_now = true;
+        c.fp_cameras++;
+    } else if (have_lp && o->third_pct != 100) {
+        vr_vec3 lh = vr_v3(lp[0], lp[1] + 1.5f, lp[2]);
+        geye = vr_v3_add(lh, vr_v3_scale(vr_v3_sub(geye, lh), o->third_pct / 100.0f));
+    }
+    // roomscale: Link walked toward the head since the last camera: the neutral head follows him, so the eye stays
+    // where the player's head is in the world while his body catches up
+    if (c.fp_now && c.rs.driving && c.rs.have_lp && c.anchor_ok) {
+        vr_vec3 dl = vr_v3(lp[0] - c.rs.lp[0], 0, lp[2] - c.rs.lp[2]);
+        if (vr_v3_len(dl) < 1.0f)
+            c.neutral.p = vr_v3_add(c.neutral.p, vr_quat_rotate(vr_quat_conj(vr_anchor_rotation(c.anchor)), dl));
+    }
     vr_anchor a = vr_anchor_recenter(c.neutral, geye, yaw + c.turn, 1.0f);
+    c.anchor = a, c.anchor_ok = true;
     vr_lookat_from_view(a, view, f, f + 3, f + 6);
+    roomscale(a, head, geye, lp, f);
     memcpy(c.out, f, sizeof c.out);
     c.out_ok = true;
-    float tx = 0, ty = 0;
-    for (int i = 0; i < 2; i++) {
-        if (eye >= 0 && i != eye) continue;
-        tx = fmaxf(tx, fmaxf(tanf(v[i].fov.angleRight), tanf(-v[i].fov.angleLeft)));
-        ty = fmaxf(ty, fmaxf(tanf(v[i].fov.angleUp), tanf(-v[i].fov.angleDown)));
+    // the frustum. In stereo, the eye's own field, off-centre as it is (narrower on the nose's side; vr_asymmetric = 0
+    // for the symmetric one), widened to the window's shape about its centre: the projection gets its half-size and
+    // its centre as sead's offset (camera_persp, camera_offset). In mono: both fields together, made symmetric.
+    float tx = 0, ty = 0, cx = 0, cy = 0;
+    if (eye >= 0 && o->asymmetric) {
+        float l = tanf(v[eye].fov.angleLeft), r = tanf(v[eye].fov.angleRight);
+        float u = tanf(v[eye].fov.angleUp), d = tanf(v[eye].fov.angleDown);
+        tx = (r - l) / 2, ty = (u - d) / 2, cx = (r + l) / 2, cy = (u + d) / 2;
+    } else {
+        for (int i = 0; i < 2; i++) {
+            if (eye >= 0 && i != eye) continue;
+            tx = fmaxf(tx, fmaxf(tanf(v[i].fov.angleRight), tanf(-v[i].fov.angleLeft)));
+            ty = fmaxf(ty, fmaxf(tanf(v[i].fov.angleUp), tanf(-v[i].fov.angleDown)));
+        }
     }
     if (tx > 0.05f && ty > 0.05f) {
         float wa = c.window_aspect;
         if (tx / ty < wa) tx = ty * wa;
         else ty = tx / wa;
-        c.tan_x = tx, c.tan_y = ty;
-        c.cur = (vr_view){true, eye, to_xr(view), {-atanf(tx), atanf(tx), atanf(ty), -atanf(ty)}};
+        c.tan_x = tx, c.tan_y = ty, c.off_x = cx, c.off_y = cy;
+        c.cur = (vr_view){true, eye, to_xr(view), {atanf(cx - tx), atanf(cx + tx), atanf(cy + ty), atanf(cy - ty)}};
     }
     c.updates++;
     pthread_mutex_unlock(&lock);
 }
+
+// sead::PerspectiveProjection's offset (+0xb4, +0xb8) for the world's camera: the frustum's centre as fractions of the
+// near plane's width and height (main+0xc7688c makes left and right w * x -+ w / 2, top and bottom h * y +- h / 2; a
+// positive x moves the picture's centre to the left of the view's axis, a positive y up)
+static bool camera_offset(float *x, float *y) {
+    if (!vr_world_view()) return false;
+    pthread_mutex_lock(&lock);
+    bool ok = c.cur.world && c.tan_x > 0 && c.tan_y > 0;
+    if (ok && (c.off_x || c.off_y)) c.offset_calls++;
+    // (TOTK_VR_OFFSET_SIGN=-1 flips it: tools/vr/test_vr_frustum.py checks the sign can be told apart)
+    static float sign = 0;
+    if (!sign) sign = getenv("TOTK_VR_OFFSET_SIGN") && atoi(getenv("TOTK_VR_OFFSET_SIGN")) < 0 ? -1.0f : 1.0f;
+    // (x the other way round: measured with tools/vr/test_vr_frustum.py, the eye's own field lined up with the
+    // symmetric one only with the horizontal centre subtracted; the vertical one adds)
+    if (ok) *x -= sign * c.off_x / (2 * c.tan_x), *y += sign * c.off_y / (2 * c.tan_y);
+    pthread_mutex_unlock(&lock);
+    return ok;
+}
+uint64_t vr_fp_cameras(void) { return c.fp_cameras; }
+uint64_t vr_offset_calls(void) { return c.offset_calls; }
 
 static bool camera_persp(float *tan_fovy, float *aspect) {
     if (!vr_world_view()) return false;
@@ -448,11 +558,27 @@ static __attribute__((unused)) void vr_persp_hook(Cpu *cpu) {
     cpu->v[2] = fbits(aspect);
 }
 
+// host call in place of the projection's ldp s4, s5, [x0, #0xb4] (x0 the projection; sead's offset): in VR, the
+// world's projection takes the eye's off-centre field (camera_offset), added to the game's own offset
+static __attribute__((unused)) void vr_offset_hook(Cpu *cpu) {
+    uint64_t p = cpu->x[0];
+    float ox = ldf(p + PROJ_OFFSET), oy = ldf(p + PROJ_OFFSET + 4);
+#ifdef TOTK_VR
+    static float min_far = -1;
+    if (min_far < 0) min_far = getenv("TOTK_VR_WORLD_FAR") ? (float)atof(getenv("TOTK_VR_WORLD_FAR")) : 20000.0f;
+    if (ldf(p + PROJ_FAR) >= min_far) camera_offset(&ox, &oy);
+#endif
+    cpu->v[4] = fbits(ox);
+    cpu->v[5] = fbits(oy);
+}
+
 #ifdef RT_PATCH_PAGE
 #define HOST_VR_LOOKAT (RT_PATCH_PAGE + 0xf60)
 #define HOST_VR_PERSP (RT_PATCH_PAGE + 0xf50)
+#define HOST_VR_OFFSET (RT_PATCH_PAGE + 0xf40)
 __attribute__((constructor)) static void vr_camera_register(void) {
     rt_register_host(HOST_VR_LOOKAT, vr_lookat_hook);
     rt_register_host(HOST_VR_PERSP, vr_persp_hook);
+    rt_register_host(HOST_VR_OFFSET, vr_offset_hook);
 }
 #endif

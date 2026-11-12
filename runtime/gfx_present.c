@@ -587,7 +587,7 @@ void gfx_fit_rect(int cw, int ch, int dw, int dh, int out[4]) {
 static void present_image(VkImage src, VkImageLayout layout, VkFormat fmt, int w, int h, const int crop[4], int defer) {
     int general = layout == VK_IMAGE_LAYOUT_GENERAL;
 #ifdef TOTK_VR
-    vr_present(src, layout, fmt, w, h);   // (the game's frame to the headset: runtime/vr.c)
+    if (!vr_present(src, layout, fmt, w, h)) return;   // (the game's frame to the headset: runtime/vr.c; the window: one eye)
 #endif
     gfx_window_start();
     VkCtx *c = vk_ctx();

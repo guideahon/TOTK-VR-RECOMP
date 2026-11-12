@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "cfg.h"
 #include "host.h"
 #include "vk.h"
 #include "vr.h"
@@ -61,6 +62,7 @@ static struct {
     XrTime last_display;
     XrDuration period;
     uint64_t frames, rendered, world;
+    uint64_t window_skipped;   // right-eye frames the desktop window did not show
 } g;
 
 bool vr_enabled(void) { return enabled; }
@@ -87,9 +89,9 @@ void vr_disable(const char *why) {
     rt_log("vr: VR stopped (%s): the game goes on flat", why);
 }
 
-static float env_float(const char *name, float def, float lo, float hi) {
-    const char *v = getenv(name);
-    float f = v && *v ? (float)atof(v) : def;
+// a setting (cfg.h: the variable, else totk.ini, else the table's default) within lo..hi, else def
+static float setting_float(const char *name, float def, float lo, float hi) {
+    float f = (float)cfg_double(name);
     return f >= lo && f <= hi ? f : def;
 }
 
@@ -116,8 +118,7 @@ static void stay_flat(const char *why) {
 void vr_init(void) {
     if (asked) return;
     asked = true;
-    const char *e = getenv("TOTK_VR");
-    if (!e || !*e || !strcmp(e, "0")) return;
+    if (!cfg_bool("TOTK_VR")) return;   // (totk.ini vr = 1 or TOTK_VR=1)
     XrInstanceCreateInfo ci = {XR_TYPE_INSTANCE_CREATE_INFO};
     snprintf(ci.applicationInfo.applicationName, sizeof ci.applicationInfo.applicationName, "TotK Recomp");
     snprintf(ci.applicationInfo.engineName, sizeof ci.applicationInfo.engineName, "TotK Recomp");
@@ -244,8 +245,8 @@ void vr_vk_session_start(void) {
     vkAllocateCommandBuffers(c->device, &ai, g.cb);
     VkFenceCreateInfo fi = {.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, .flags = VK_FENCE_CREATE_SIGNALED_BIT};
     for (int i = 0; i < SLOTS; i++) vkCreateFence(c->device, &fi, NULL, &g.fence[i]);
-    g.screen_w = env_float("TOTK_VR_SCREEN_WIDTH", 3.0f, 0.2f, 50.0f);
-    g.screen_dist = env_float("TOTK_VR_SCREEN_DISTANCE", 2.5f, 0.3f, 50.0f);
+    g.screen_w = setting_float("TOTK_VR_SCREEN_WIDTH", 3.0f, 0.2f, 50.0f);
+    g.screen_dist = setting_float("TOTK_VR_SCREEN_DISTANCE", 2.5f, 0.3f, 50.0f);
     rt_log("vr: session on queue family %u; virtual screen %.1f m wide at %.1f m", c->gfx_family, g.screen_w,
            g.screen_dist);
     vr_input_setup(g.session);
@@ -435,9 +436,18 @@ static void end_frame(const XrFrameState *fs, const XrCompositionLayerBaseHeader
     vr_xr_ok(xrEndFrame(g.session, &ei), "xrEndFrame");
     vk_queue_unlock();
     if (layer) g.rendered++;
-    if (g.frames % 2000 == 0)
-        rt_log("vr: %llu headset frames, %llu shown, %llu with the head (stereo pairs %llu)", (unsigned long long)g.frames,
-               (unsigned long long)g.rendered, (unsigned long long)g.world, (unsigned long long)vr_stereo_pairs());
+    if (g.frames % 500 == 0) {
+        extern uint64_t vr_roomscale_frames(void), vr_fp_cameras(void), vr_offset_calls(void), vr_rumble_pulses(void),
+            vr_gesture_count(void);
+        rt_log("vr: %llu headset frames, %llu shown, %llu with the head (stereo pairs %llu); window skipped %llu right "
+               "frames; first-person cameras %llu, off-centre projections %llu, roomscale %llu, rumble pulses %llu, "
+               "gestures %llu",
+               (unsigned long long)g.frames, (unsigned long long)g.rendered, (unsigned long long)g.world,
+               (unsigned long long)vr_stereo_pairs(), (unsigned long long)g.window_skipped,
+               (unsigned long long)vr_fp_cameras(), (unsigned long long)vr_offset_calls(),
+               (unsigned long long)vr_roomscale_frames(), (unsigned long long)vr_rumble_pulses(),
+               (unsigned long long)vr_gesture_count());
+    }
 }
 
 static void projection_view(XrCompositionLayerProjectionView *pv, const vr_view *v, int k, int w, int h) {
@@ -448,15 +458,12 @@ static void projection_view(XrCompositionLayerProjectionView *pv, const vr_view 
     pv->subImage.imageRect = (XrRect2Di){{0, 0}, {w, h}};
 }
 
-void vr_present(VkImage src, VkImageLayout layout, VkFormat fmt, int w, int h) {
+static void present(VkImage src, VkImageLayout layout, VkFormat fmt, int w, int h, vr_view view, bool world) {
     VkCtx *c = vk_ctx();
     if (!g.session || !c || !src || w <= 0 || h <= 0) return;
     poll_events();
     if (!g.running || !g.session) return;
     vr_window_aspect((float)w / (float)h);
-    // what the frame was drawn as (vr_camera.c): with the head in play, for one eye or both, else the virtual screen
-    vr_view view;
-    bool world = vr_present_take(&view) && view.world;
     int eye = world ? view.eye : -1;
     XrCompositionLayerProjection proj = {XR_TYPE_COMPOSITION_LAYER_PROJECTION};
     XrCompositionLayerProjectionView pv[2];
@@ -510,6 +517,17 @@ void vr_present(VkImage src, VkImageLayout layout, VkFormat fmt, int w, int h) {
     }
     end_frame(&fs, ok ? (const XrCompositionLayerBaseHeader *)&quad : NULL);
 }
+
+// what the frame was drawn as (vr_camera.c): with the head in play, for one eye or both, else the virtual screen
+bool vr_present(VkImage src, VkImageLayout layout, VkFormat fmt, int w, int h) {
+    vr_view view;
+    bool world = vr_present_take(&view) && view.world;
+    present(src, layout, fmt, w, h, view, world);
+    if (world && view.eye == 1) g.window_skipped++;
+    return !(world && view.eye == 1);
+}
+
+uint64_t vr_window_skipped(void) { return g.window_skipped; }
 
 void vr_stats(uint64_t *frames, uint64_t *rendered, int *state) {
     *frames = g.frames, *rendered = g.rendered, *state = (int)g.state;

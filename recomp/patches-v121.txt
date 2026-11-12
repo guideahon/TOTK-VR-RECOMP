@@ -1127,3 +1127,4 @@ site shadow main cec22c 11001d6b @page:x11 b9405d6b 11001d6b   # add w11, w11, #
 set vr       TOTK_VR             0
 site vr main bb8074 f9401c48 94edcfbb   # the view copies its LookAtCamera (x2): ldr x8, [x2, #0x38] (eye x, y)
 site vr main c76898 2d558801 94ead5ae   # perspective projection matrix: ldp s1, s2, [x0, #0xac]
+site vr main c768a0 2d569404 94ead5a8   # its centre (sead offset): ldp s4, s5, [x0, #0xb4] (page +0xf40; VR stereo, each eye off-centre)

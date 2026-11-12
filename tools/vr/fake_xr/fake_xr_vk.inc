@@ -516,6 +516,9 @@ static void fxvk_capture(session *s, const XrFrameEndInfo *ei, uint64_t frame) {
             for (uint32_t v = 0; v < p->viewCount; v++) {
                 snprintf(tag, sizeof tag, "frame%06llu_layer%u_view%u", (unsigned long long)frame, i, v);
                 fxvk_capture_one(s, &p->views[v].subImage, tag, false);
+                const XrFovf *fv = &p->views[v].fov;   // (the field the picture was given: tests map it to angles)
+                logf_(s->inst, "capture %s fov %.4f %.4f %.4f %.4f\n", tag, fv->angleLeft, fv->angleRight, fv->angleUp,
+                      fv->angleDown);
             }
         }
     }

@@ -21,8 +21,9 @@ void vr_vk_session_start(void);        // after the device and its queues (vk_ct
 void vr_vk_release(void);              // before the device goes away
 
 // runtime/gfx_present.c vk_present_blit: the game's frame (src in layout: TRANSFER_SRC_OPTIMAL or GENERAL, its
-// writes submitted to gfx_queue) to the headset
-void vr_present(VkImage src, VkImageLayout layout, VkFormat fmt, int w, int h);
+// writes submitted to gfx_queue) to the headset. Returns false for a frame the desktop window should not show: in
+// stereo the window shows the left eye only (both, in turn, would flicker between the eyes' views)
+bool vr_present(VkImage src, VkImageLayout layout, VkFormat fmt, int w, int h);
 
 // runtime/input.c: the VR controllers added to the game's input (Switch button bits, sticks -32767..32767, +y up)
 void vr_input_apply(uint64_t *buttons, int32_t *lx, int32_t *ly, int32_t *rx, int32_t *ry);
