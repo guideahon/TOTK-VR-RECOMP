@@ -293,7 +293,21 @@ static struct {
     int ids_ok;
     unsigned cfg_seen;           // cfg_version when preset was read
     uint64_t last_eval_ns;       // plat_now_ns of the previous evaluation (FrameTimeDeltaInMsec)
-} D = {.mv_ok = -1, .cfg_seen = ~0u};
+} Dv[2] = {{.mv_ok = -1, .cfg_seen = ~0u}, {.mv_ok = -1, .cfg_seen = ~0u}};
+// VR in stereo (runtime/vr_camera.c; Savage Wind VR gives its TAA a history per eye the same way): the eyes are drawn
+// in turn, so one DLSS history would blend each eye into the other. Each eye keeps a state of its own (its features
+// and history, last camera, jitter sequence, work images): Dv[1] for the right eye's frames, Dv[0] otherwise. The
+// replay runs on the game's render thread, so the eye is the frame's; vk_dlaa_frame (at the present, after the pair
+// moved on) resets the per-frame flags of the eye the next frame is for.
+static int dlaa_eye(void) {
+#ifdef TOTK_VR
+    extern int vr_frame_eye_peek(void);
+    return vr_frame_eye_peek() == 1;
+#else
+    return 0;
+#endif
+}
+#define D (Dv[dlaa_eye()])
 
 const VkTexImage *vk_dlaa_swap_img;
 VkImageView vk_dlaa_swap_view;

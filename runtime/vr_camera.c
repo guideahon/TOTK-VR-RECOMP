@@ -507,6 +507,11 @@ bool vr_present_take(vr_view *out) {
 }
 
 uint64_t vr_camera_updates(void) { return c.updates; }
+// vk_dlaa.c, many times a frame: vr_frame_eye without the lock (the pair's eye is an int the present changes)
+int vr_frame_eye_peek(void) {
+    if (!vr_world_view() || !stereo_on()) return -1;
+    return __atomic_load_n(&c.cam_set, __ATOMIC_RELAXED) ? __atomic_load_n(&c.pair.eye, __ATOMIC_RELAXED) : -1;
+}
 uint64_t vr_shadow_skips;   // right-eye draws and clears into the sun cascades left out (vk_exec.c)
 
 // vk_exec.c (the replay, on the game's render thread): the eye the frame being drawn is for, in play in stereo (0 left,
