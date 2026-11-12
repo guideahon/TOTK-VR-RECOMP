@@ -46,10 +46,14 @@ def main():
             failed.append(name)
 
     # unit tests
-    for t in ('test_vr_math', 'test_vr_pair', 'test_vr_input_map', 'test_vr_melee'):
+    for t in ('test_vr_math', 'test_vr_pair', 'test_vr_input_map', 'test_vr_melee', 'test_vr_gestures'):
         exe = out / (t + EXE)
         ok = run([cc, *cflags, *inc, '-o', str(exe), f'tests/vr/{t}.c', '-lm'])
         step(t, ok and run([str(exe)]))
+    exe = out / ('test_vr_options' + EXE)
+    ok = run([cc, *cflags, *inc, '-o', str(exe), 'tests/vr/test_vr_options.c', 'runtime/vr_options.c',
+              'tests/vr/vr_cfg_stub.c', '-lm'])
+    step('test_vr_options', ok and run([str(exe), 'runtime/cfg.c']))
     # fake_xr and the tests that drive it
     lib = out / ('fake_xr.dll' if WIN else 'fake_xr.so')
     ok = run([cc, *cflags, *inc, '-fvisibility=hidden', '-shared', *([] if WIN else ['-fPIC']), '-o', str(lib),
@@ -75,6 +79,7 @@ def main():
         scratch.mkdir(exist_ok=True)
         ok = run([cc, *cflags, '-Wno-unused-function', '-DTOTK_VR', *inc, '-I', 'runtime/third_party', '-I', str(args.vma),
                   '-o', str(exe), 'tests/vr/test_vr_present.c', 'runtime/vr.c', 'runtime/vr_input.c', 'runtime/vr_camera.c',
+                  'runtime/vr_options.c', 'tests/vr/vr_cfg_stub.c',
                   '-lopenxr_loader', *vk, '-lm'])
         step('test_vr_present (runtime/vr.c with fake_xr)', ok and run([str(exe), str(scratch)], env=env))
     # the runtime files the VR mode touches, with and without it
@@ -83,7 +88,8 @@ def main():
     if WIN:
         rt.append('-D_WIN32_WINNT=0x0A00')
     for vr in ([], ['-DTOTK_VR']):
-        for f in ('vk_device.c', 'gfx_present.c', 'input.c', 'vr.c', 'vr_input.c', 'vr_camera.c'):
+        for f in ('vk_device.c', 'gfx_present.c', 'input.c', 'ov_input.c', 'vr.c', 'vr_input.c', 'vr_camera.c',
+                  'vr_options.c'):
             step('compile {}{}'.format(f, ' (TOTK_VR)' if vr else ''), run([cc, *rt, *vr, f'runtime/{f}'], quiet=True))
     print('{} failed'.format(len(failed)) if failed else 'all passed')
     return 1 if failed else 0

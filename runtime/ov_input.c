@@ -311,6 +311,16 @@ static void rumble_update(uint64_t now) {
         if (h > heavy) heavy = h;
         if (l > light) light = l;
     }
+#ifdef TOTK_VR
+    {   // the VR controllers (runtime/vr_input.c vr_rumble): each side's stronger band on that hand
+        extern void vr_rumble(int hand, float amplitude);
+        for (int s = 0; s < 2; s++) {
+            int live = vib_allowed && vib_at[s] && now - vib_at[s] <= RUMBLE_STALE_NS;
+            float a = live ? fmaxf(clamp01(vib_last[s].amp_low), clamp01(vib_last[s].amp_high)) : 0;
+            vr_rumble(s, a);
+        }
+    }
+#endif
     uint16_t lo = motor(clamp01(heavy)), hi = motor(clamp01(light));
     int changed = lo != sent_low || hi != sent_high, on = lo || hi;
     if (changed ? on && now - sent_at < RUMBLE_MIN_GAP_NS : !on || now - sent_at < RUMBLE_REFRESH_NS) return;
