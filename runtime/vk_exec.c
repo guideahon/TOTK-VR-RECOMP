@@ -455,6 +455,33 @@ static void resolve_rt_as(VkExec *ex, int peek) {
 
 static void resolve_rt(VkExec *ex) { resolve_rt_as(ex, 0); }
 
+// VR in stereo (runtime/vr_camera.c, from Savage Wind VR's exec.c begin_pass): the right eye's frame reuses the left
+// one's sun shadow cascades. Its draws and depth clears into them are left out: the eyes are 6.4 cm apart and the right
+// frame takes the shortest game step (vr_frame_step), so they would draw what the left frame drew. The cascades are the
+// one DEPTH16 2D array of 4 square layers TotK renders its sun shadows into (vk_texture.c shadow_scale_of); the static
+// shadows' arrays of 2 are drawn only when the view moves far, so a right frame keeps drawing them. The replay must run
+// on the game's render thread (TOTK_REPLAY_ASYNC=0, the default) for the eye to be the frame's.
+// TOTK_VR_SHADOWS_ONCE=0 draws them for both eyes.
+#ifdef TOTK_VR
+int vk_exec_vr_shadow_skip(VkExec *ex) {
+    static int on = -1;
+    if (on < 0) on = cfg_bool("TOTK_VR_SHADOWS_ONCE") && !cfg_bool("TOTK_REPLAY_ASYNC");
+    if (!on) return 0;
+    resolve_rt(ex);
+    const VkExecTarget *d = &ex->depth;
+    if (!d->image || !d->img || d->img->format != VK_FORMAT_D16_UNORM || d->img->layers != 4 ||
+        d->img->width != d->img->height || d->img->width < 256)
+        return 0;
+    for (uint32_t i = 0; i < ex->pass_ncolor && i < 8; i++)
+        if (ex->color[i].image) return 0;
+    extern int vr_frame_eye(void);
+    if (vr_frame_eye() != 1) return 0;
+    extern uint64_t vr_shadow_skips;   // (vr_camera.c; vr.c logs it)
+    vr_shadow_skips++;
+    return 1;
+}
+#endif
+
 // The attachment view of a target. A registered texture's view lives as long as its image (vk_exec_target_view); any
 // other image's view is made for this command buffer and freed at its fence.
 static VkImageView view_of(VkExec *ex, const VkExecTarget *t) {
@@ -835,6 +862,9 @@ static void clear_ds(VkExec *ex, const p_clear_ds *c) {
     resolve_rt(ex);
     const VkExecTarget *t = &ex->depth;
     if (!t->image) return;
+#ifdef TOTK_VR
+    if (vk_exec_vr_shadow_skip(ex)) return;   // (the right eye: the left one's cascades kept)
+#endif
     VkImageAspectFlags asp = 0;
     if (c->depth_mask && (t->aspect & VK_IMAGE_ASPECT_DEPTH_BIT)) asp |= VK_IMAGE_ASPECT_DEPTH_BIT;
     uint32_t sm = (uint32_t)c->stencil_mask & 0xff;

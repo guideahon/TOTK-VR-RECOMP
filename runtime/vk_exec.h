@@ -177,6 +177,9 @@ typedef struct VkExec {
 void vk_exec_pass_begin(VkExec *ex);
 // Ends the open pass (no-op without one) and marks its targets GPU-written. Call before copies and dispatches.
 void vk_exec_pass_end(VkExec *ex);
+#ifdef TOTK_VR
+int vk_exec_vr_shadow_skip(VkExec *ex);   // vk_exec.c: a draw or clear into the sun cascades of a right-eye frame
+#endif
 // Full memory barrier (all commands, all memory); ends the open pass first. Copies and dispatches order themselves with
 // it. Skipped when nothing was recorded since the last one.
 void vk_exec_barrier(VkExec *ex);

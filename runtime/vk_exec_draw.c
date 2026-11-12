@@ -2458,6 +2458,9 @@ static int prepare_draw(VkExec *ex, int prim, int32_t count, int restart) {
         if (!ex->in_pass) ex->rt_resolved = 0;
     }
     if (!ex->in_pass) ex->dirty |= VK_EXEC_DIRTY_VIEWPORT | VK_EXEC_DIRTY_SCISSOR;
+#ifdef TOTK_VR
+    if (vk_exec_vr_shadow_skip(ex)) return 0;   // (VR stereo, the right eye: the left one's sun shadows kept)
+#endif
     vk_exec_pass_begin(ex);
     VkRect2D sc = vk_exec_scissor(ex);
     if (!sc.extent.width || !sc.extent.height) return 0;
