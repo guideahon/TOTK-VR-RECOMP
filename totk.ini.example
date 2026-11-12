@@ -486,4 +486,9 @@
 # The game's pre-rendered movies (cutscenes made as video) on the virtual screen (screen) or with head tracking
 # (world). vr_shadows_once = 1: in stereo the right eye reuses the left eye's sun shadows (faster; read at start).
 # vr_movies = screen
+# Events (cutscenes, talks): auto (cutscenes, named Dm_*, on the event's camera in 3D; the rest in first person),
+# first, third (always on the event's camera) or screen (flat on the virtual screen). vr_cutscene_bars = 1: an event on
+# its own camera is shown flat on the virtual screen, as the game frames it.
+# vr_events = auto
+# vr_cutscene_bars = 0
 # vr_shadows_once = 1

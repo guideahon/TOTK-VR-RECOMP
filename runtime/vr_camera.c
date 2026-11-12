@@ -23,6 +23,7 @@
 // The host functions are registered in every build (a TOTK_VR=1 run of a build without --vr reaches them too); without
 // --vr they only perform the displaced loads.
 #include <math.h>
+#include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -86,6 +87,7 @@ static struct {
     float tan_x, tan_y;
     float off_x, off_y;    // the frustum's centre off the view's axis (tan units; 0: symmetric)
     bool fp_now;           // the last camera was set in first person
+    bool in_event;         // ... in an event (vr_game.c vr_event_now)
     float neutral_floor;   // the head's height over the floor (STAGE) when recentred, for vr_play_position = standing
     bool neutral_floor_ok;
     float eye_height, forward;  // first person: the eye above Link's feet, and ahead of his head's centre (m)
@@ -114,8 +116,41 @@ static bool head_on(void) {
 
 // In play with the head. A movie (TotK's pre-rendered cutscenes, ov_movie.c) goes on the virtual screen instead, flat
 // as it was made (BetterVR shows such cutscenes on a screen too); vr_movies = world keeps the head on the camera.
+// ---- events (cutscenes, talks): BetterVR's modes (vr_events) ----
+//   auto    (the default) TotK's cutscenes (events named Dm_*) on the event's camera in 3D, the head free to look
+//           around; other events (talks, item fanfares, system events) in first person, as BetterVR does
+//   first   always in first person (in Link's head)
+//   third   always on the event's camera, in 3D
+//   screen  on the virtual screen, flat
+// vr_cutscene_bars = 1 (BetterVR's UseBlackBarsForCutscenes): an event on its own camera is shown flat on the virtual
+// screen, as the game frames it. The event and its name: vr_game.c vr_event_now.
+enum { EV_AUTO, EV_FIRST, EV_THIRD, EV_SCREEN };
+extern bool vr_event_now(char *name, size_t n);
+
+// in an event: whether it is seen in first person
+static bool event_now(bool *fp) {
+    char name[64];
+    *fp = false;
+    if (!vr_event_now(name, sizeof name)) return false;
+    int m = vr_options()->events;
+    *fp = m == EV_FIRST || (m == EV_AUTO && strncmp(name, "Dm", 2) != 0);
+    static char last[64];
+    if (strcmp(name, last)) {
+        snprintf(last, sizeof last, "%s", name);
+        static const char *const how[] = {"as auto says", "in first person", "on the event's camera", "on the virtual screen"};
+        rt_log("vr: event %s: %s (%s)", name[0] ? name : "(no name)",
+               m == EV_SCREEN ? how[3] : *fp ? how[1] : how[2], m == EV_AUTO ? "vr_events = auto" : "vr_events");
+    }
+    return true;
+}
+
 bool vr_world_view(void) {
     if (!vr_enabled() || !vr_session_running() || !head_on()) return false;
+    bool fp;
+    if (event_now(&fp)) {
+        if (vr_options()->events == EV_SCREEN) return false;
+        if (vr_options()->cutscene_bars && !fp) return false;   // (on its camera: flat, as the game frames it)
+    }
     extern int movie_playing(void);
     static int was;
     int m = movie_playing();
@@ -210,7 +245,7 @@ static void roomscale(vr_anchor a, vr_pose head, vr_vec3 geye, const float *lp, 
     else c.rs.have_lp = false;
     vr_vec3 hw = vr_xr_to_game_point(a, head.p);
     float gx = hw.x - geye.x, gz = hw.z - geye.z, d = sqrtf(gx * gx + gz * gz);
-    bool on = c.fp_now && vr_options()->roomscale;
+    bool on = c.fp_now && !c.in_event && vr_options()->roomscale;
     if (!on || d < 0.04f) c.rs.driving = false;
     else if (d > 0.10f) c.rs.driving = true;
     if (!c.rs.driving) {
@@ -277,7 +312,9 @@ static void camera_lookat(float *f) {
     float lp[3];
     bool have_lp = frame_rate_player_pos(lp);
     c.fp_now = false;
-    if (o->first_person && have_lp) {
+    bool ev_fp, ev = event_now(&ev_fp);
+    c.in_event = ev;
+    if ((ev ? ev_fp : o->first_person) && have_lp) {
         // seated: the recentred head at Link's eye height; standing: at the player's own height over the floor when
         // the head was recentred (the head's rise and fall since then come on top, through the anchor)
         float eh = c.eye_height;
@@ -286,7 +323,7 @@ static void camera_lookat(float *f) {
                      lp[2] + cosf(yaw + c.turn) * c.forward);
         c.fp_now = true;
         c.fp_cameras++;
-    } else if (have_lp && o->third_pct != 100) {
+    } else if (!ev && have_lp && o->third_pct != 100) {
         vr_vec3 lh = vr_v3(lp[0], lp[1] + 1.5f, lp[2]);
         geye = vr_v3_add(lh, vr_v3_scale(vr_v3_sub(geye, lh), o->third_pct / 100.0f));
     }
@@ -479,6 +516,7 @@ static void camera_scan(void) {
 
 void vr_present_mark(void) {
     camera_scan();
+    { extern void vr_game_probe(void); vr_game_probe(); }
     if (!vr_enabled()) return;
     pthread_mutex_lock(&lock);
     if (c.q_count == QUEUE) {

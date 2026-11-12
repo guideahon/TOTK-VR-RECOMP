@@ -79,7 +79,7 @@ def main():
         scratch.mkdir(exist_ok=True)
         ok = run([cc, *cflags, '-Wno-unused-function', '-DTOTK_VR', *inc, '-I', 'runtime/third_party', '-I', str(args.vma),
                   '-o', str(exe), 'tests/vr/test_vr_present.c', 'runtime/vr.c', 'runtime/vr_input.c', 'runtime/vr_camera.c',
-                  'runtime/vr_options.c', 'tests/vr/vr_cfg_stub.c',
+                  'runtime/vr_options.c', 'runtime/vr_game.c', 'tests/vr/vr_cfg_stub.c',
                   '-lopenxr_loader', *vk, '-lm'])
         step('test_vr_present (runtime/vr.c with fake_xr)', ok and run([str(exe), str(scratch)], env=env))
     # the runtime files the VR mode touches, with and without it
@@ -89,7 +89,7 @@ def main():
         rt.append('-D_WIN32_WINNT=0x0A00')
     for vr in ([], ['-DTOTK_VR']):
         for f in ('vk_device.c', 'gfx_present.c', 'input.c', 'ov_input.c', 'vr.c', 'vr_input.c', 'vr_camera.c',
-                  'vr_options.c'):
+                  'vr_options.c', 'vr_game.c'):
             step('compile {}{}'.format(f, ' (TOTK_VR)' if vr else ''), run([cc, *rt, *vr, f'runtime/{f}'], quiet=True))
     print('{} failed'.format(len(failed)) if failed else 'all passed')
     return 1 if failed else 0

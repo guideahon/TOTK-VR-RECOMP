@@ -23,6 +23,8 @@ typedef struct {
     bool motion, swing_easy, swing_attack, shield;
     int vignette;          // vr_vignette: 0 off, 1 low, 2 medium, 3 high
     bool show_controllers; // vr_show_controllers: a disc at each controller
+    int events;            // vr_events: 0 auto, 1 first, 2 third (the event's camera), 3 screen
+    bool cutscene_bars;    // vr_cutscene_bars: an event on its own camera shown flat on the virtual screen
     bool movies_on_screen; // vr_movies: screen (movies on the virtual screen) or world
     bool standing;         // vr_play_position: standing (first person at the player's real height) or seated
 } vr_options_t;

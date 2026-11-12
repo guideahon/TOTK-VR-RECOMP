@@ -31,6 +31,7 @@ void rt_log(const char *fmt, ...) {
 // (vr_camera.c's reverse-engineering scan, never on here)
 int frame_rate_player_pos(float xyz[3]) { return 0; }
 int movie_playing(void) { return 0; }   // (ov_movie.c: no movie)
+int plat_mem_read(uint64_t a, void *out, size_t n) { return 0; }   // (vr_game.c: no game memory)
 uint32_t mem_query(uint64_t a, RtMemoryInfo *out) { return 1; }
 int mem_guest_readable(uint64_t a, uint64_t n) { return 0; }
 const char *rt_guest_name(uint64_t pc, char *buf, int size) { return buf[0] = 0, buf; }

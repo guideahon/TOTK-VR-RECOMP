@@ -66,6 +66,9 @@ static struct {
     XrDuration period;
     uint64_t frames, rendered, world;
     uint64_t window_skipped;   // right-eye frames the desktop window did not show
+    XrCompositionLayerProjectionView last_pv[2];   // the last projection shown (its swapchains' last images)
+    bool have_last;
+    uint64_t repeats;          // frames in play without the head that showed the last projection again
 } g;
 
 bool vr_enabled(void) { return enabled; }
@@ -270,6 +273,7 @@ static void drop_swapchains(void) {
         g.sc[k] = (swc){0};
     }
     ov_dropped();
+    g.have_last = false;
 }
 
 static void end_session(const char *why) {
@@ -630,13 +634,14 @@ static void end_frame(const XrFrameState *fs, const XrCompositionLayerBaseHeader
         extern uint64_t vr_shadow_skips;
         rt_log("vr: %llu headset frames, %llu shown, %llu with the head (stereo pairs %llu); window skipped %llu right "
                "frames; first-person cameras %llu, off-centre projections %llu, roomscale %llu, rumble pulses %llu, "
-               "gestures %llu, vignette %llu, controller markers %llu, right-eye shadow draws left out %llu",
+               "gestures %llu, vignette %llu, controller markers %llu, right-eye shadow draws left out %llu, "
+               "repeated %llu",
                (unsigned long long)g.frames, (unsigned long long)g.rendered, (unsigned long long)g.world,
                (unsigned long long)vr_stereo_pairs(), (unsigned long long)g.window_skipped,
                (unsigned long long)vr_fp_cameras(), (unsigned long long)vr_offset_calls(),
                (unsigned long long)vr_roomscale_frames(), (unsigned long long)vr_rumble_pulses(),
                (unsigned long long)vr_gesture_count(), (unsigned long long)ov.vig_frames,
-               (unsigned long long)ov.mk_frames, (unsigned long long)vr_shadow_skips);
+               (unsigned long long)ov.mk_frames, (unsigned long long)vr_shadow_skips, (unsigned long long)g.repeats);
     }
 }
 
@@ -646,6 +651,26 @@ static void projection_view(XrCompositionLayerProjectionView *pv, const vr_view 
     pv->fov = v->fov;
     pv->subImage.swapchain = g.sc[k].h;
     pv->subImage.imageRect = (XrRect2Di){{0, 0}, {w, h}};
+}
+
+// A frame in play drawn without the head (a frame the camera hook missed: some cutscene frames, the first after a
+// load) or a stereo pair cut short would show the virtual screen, or nothing, for one headset frame: a flash. While
+// the head view is on (vr_world_view), the last projection is shown again instead: its swapchains keep their last
+// images, so nothing is copied.
+static bool repeat_last(const XrFrameState *fs) {
+    if (!g.have_last || !vr_world_view()) return false;
+    XrCompositionLayerProjection proj = {XR_TYPE_COMPOSITION_LAYER_PROJECTION};
+    proj.space = g.local;
+    proj.viewCount = 2;
+    proj.views = g.last_pv;
+    g.repeats++;
+    end_frame(fs, (const XrCompositionLayerBaseHeader *)&proj);
+    return true;
+}
+
+static void keep_last(const XrCompositionLayerProjectionView *pv) {
+    g.last_pv[0] = pv[0], g.last_pv[1] = pv[1];
+    g.have_last = true;
 }
 
 static void present(VkImage src, VkImageLayout layout, VkFormat fmt, int w, int h, vr_view view, bool world) {
@@ -666,14 +691,16 @@ static void present(VkImage src, VkImageLayout layout, VkFormat fmt, int w, int 
         if (ok) {
             projection_view(&pv[0], &g.left_view, SC_LEFT, w, h);
             projection_view(&pv[1], &view, SC_RIGHT, w, h);
+            keep_last(pv);
             g.world++;
         }
+        if (!ok && repeat_last(&g.pair_fs)) return;
         end_frame(&g.pair_fs, ok ? (const XrCompositionLayerBaseHeader *)&proj : NULL);
         return;
     }
-    if (g.pair_open) {   // a left frame not followed by its right one: nothing of it is shown
+    if (g.pair_open) {   // a left frame not followed by its right one: nothing of it is shown (the last pair again)
         g.pair_open = false;
-        end_frame(&g.pair_fs, NULL);
+        if (!repeat_last(&g.pair_fs)) end_frame(&g.pair_fs, NULL);
     }
     XrFrameState fs = {XR_TYPE_FRAME_STATE};
     if (!vr_xr_ok(xrWaitFrame(g.session, NULL, &fs), "xrWaitFrame")) return;  // (paces the game to the headset)
@@ -688,10 +715,12 @@ static void present(VkImage src, VkImageLayout layout, VkFormat fmt, int w, int 
         g.pair_open = true;
         return;
     }
+    if (!world && fs.shouldRender && repeat_last(&fs)) return;   // (in play, a frame without the head)
     bool ok = fs.shouldRender && copy_to(SC_SCREEN, src, layout, fmt, w, h);
     if (ok && world) {   // mono (or a right frame alone): the same picture for both eyes
         projection_view(&pv[0], &view, SC_SCREEN, w, h);
         projection_view(&pv[1], &view, SC_SCREEN, w, h);
+        keep_last(pv);
         g.world++;
         end_frame(&fs, (const XrCompositionLayerBaseHeader *)&proj);
         return;

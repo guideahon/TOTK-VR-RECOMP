@@ -1138,6 +1138,9 @@ static void tab_vr(float scale) {
     static const UiTextId views[] = {UI_VR_VIEW_FIRST, UI_VR_VIEW_THIRD};
     opt_choice("TOTK_VR_VIEW", UI_VR_VIEW, views, 2, UI_VR_VIEW_DESC);
     opt_slider("TOTK_VR_HEIGHT_OFFSET", UI_VR_HEIGHT, -50, 50, UI_VR_HEIGHT_DESC, 1, "%.0f cm");
+    static const UiTextId events[] = {UI_VR_EVENTS_AUTO, UI_VR_EVENTS_FIRST, UI_VR_EVENTS_THIRD, UI_VR_EVENTS_SCREEN};
+    opt_choice("TOTK_VR_EVENTS", UI_VR_EVENTS, events, 4, UI_VR_EVENTS_DESC);
+    opt_toggle("TOTK_VR_CUTSCENE_BARS", UI_VR_CUTSCENE_BARS, UI_VR_CUTSCENE_BARS_DESC);
     static const UiTextId movies[] = {UI_VR_MOVIES_SCREEN, UI_VR_MOVIES_WORLD};
     opt_choice("TOTK_VR_MOVIES", UI_VR_MOVIES, movies, 2, UI_VR_MOVIES_DESC);
     opt_slider("TOTK_VR_THIRD_DISTANCE", UI_VR_THIRD_DISTANCE, 25, 300, UI_VR_THIRD_DISTANCE_DESC, 5, "%.0f %%");

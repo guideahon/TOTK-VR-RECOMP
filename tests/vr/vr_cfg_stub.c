@@ -14,7 +14,7 @@ static const struct { const char *name, *def; } defaults[] = {
     {"TOTK_VR_ROOMSCALE", "1"}, {"TOTK_VR_RUMBLE", "1"}, {"TOTK_VR_RUMBLE_STRENGTH", "100"}, {"TOTK_VR_MOTION", "1"},
     {"TOTK_VR_SWING", "normal"}, {"TOTK_VR_SWING_ATTACK", "1"}, {"TOTK_VR_SHIELD", "1"},
     {"TOTK_VR_VIGNETTE", "off"}, {"TOTK_VR_SHOW_CONTROLLERS", "1"}, {"TOTK_VR_PLAY_POSITION", "seated"},
-    {"TOTK_VR_MOVIES", "screen"}, {"TOTK_VR_SHADOWS_ONCE", "1"},
+    {"TOTK_VR_MOVIES", "screen"}, {"TOTK_VR_EVENTS", "auto"}, {"TOTK_VR_CUTSCENE_BARS", "0"}, {"TOTK_VR_SHADOWS_ONCE", "1"},
 };
 
 const char *cfg_get(const char *name) {

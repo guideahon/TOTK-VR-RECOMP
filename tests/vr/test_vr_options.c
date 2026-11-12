@@ -50,6 +50,8 @@ int main(int argc, char **argv) {
     CHECK_EQ_INT(o->rumble_pct, 100);
     CHECK_EQ_INT(o->vignette, 0);
     CHECK(o->show_controllers && !o->standing);
+    CHECK_EQ_INT(o->events, 0);
+    CHECK(!o->cutscene_bars && o->movies_on_screen);
 
     VR_TEST("set, clamped, live");
     set("TOTK_VR_VIEW", "third");
@@ -83,7 +85,8 @@ int main(int argc, char **argv) {
             "VR_SCREEN_DISTANCE", "VR_VIEW", "VR_HEIGHT_OFFSET", "VR_THIRD_DISTANCE", "VR_ASYMMETRIC", "VR_CONTROLS",
             "VR_LEFT_HANDED", "VR_TURN", "VR_SNAP_DEGREES", "VR_TURN_SPEED", "VR_WALK", "VR_ROOMSCALE", "VR_RUMBLE",
             "VR_RUMBLE_STRENGTH", "VR_MOTION", "VR_SWING", "VR_SWING_ATTACK", "VR_SHIELD", "VR_VIGNETTE",
-            "VR_SHOW_CONTROLLERS", "VR_PLAY_POSITION", "VR_MOVIES", "VR_SHADOWS_ONCE"};
+            "VR_SHOW_CONTROLLERS", "VR_PLAY_POSITION", "VR_MOVIES", "VR_SHADOWS_ONCE", "VR_EVENTS",
+            "VR_CUTSCENE_BARS"};
         extern const char *cfg_value(const char *);
         for (size_t i = 0; i < sizeof keys / sizeof *keys; i++) {
             char want[64], name[64];
