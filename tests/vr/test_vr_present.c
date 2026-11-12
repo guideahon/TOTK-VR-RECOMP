@@ -30,6 +30,7 @@ void rt_log(const char *fmt, ...) {
 }
 // (vr_camera.c's reverse-engineering scan, never on here)
 int frame_rate_player_pos(float xyz[3]) { return 0; }
+int movie_playing(void) { return 0; }   // (ov_movie.c: no movie)
 uint32_t mem_query(uint64_t a, RtMemoryInfo *out) { return 1; }
 int mem_guest_readable(uint64_t a, uint64_t n) { return 0; }
 const char *rt_guest_name(uint64_t pc, char *buf, int size) { return buf[0] = 0, buf; }
@@ -48,6 +49,9 @@ uint64_t plat_now_ns(void) {
 #undef vkCmdBlitImage
 #undef vkCmdClearColorImage
 #undef vkCmdPipelineBarrier
+#undef vkCmdCopyBufferToImage
+void rc_vkCmdCopyBufferToImage(VkCommandBuffer cb, VkBuffer s, VkImage d, VkImageLayout dl, uint32_t n,
+                                const VkBufferImageCopy *r) { vkCmdCopyBufferToImage(cb, s, d, dl, n, r); }
 void rc_vkCmdPipelineBarrier2(VkCommandBuffer cb, const VkDependencyInfo *d) { vkCmdPipelineBarrier2(cb, d); }
 void rc_vkCmdCopyImage(VkCommandBuffer cb, VkImage s, VkImageLayout sl, VkImage d, VkImageLayout dl, uint32_t n,
                        const VkImageCopy *r) { vkCmdCopyImage(cb, s, sl, d, dl, n, r); }
@@ -171,7 +175,9 @@ int main(int argc, char **argv) {
     // (0.5 cleared into UNORM is 127 or 128, by the driver's rounding)
     CHECK(l && (strstr(l, "_layer0_quad 320x180 mean 255.0 127.0 0.0 lit 100.0%") ||
                 strstr(l, "_layer0_quad 320x180 mean 255.0 128.0 0.0 lit 100.0%")));
-    CHECK(l && strstr(l, "layers 1 quad") != NULL);
+    CHECK(l && strstr(l, "layers 3 quad,quad,quad") != NULL);   // (the virtual screen, then a marker at each controller)
+    // the controller markers: a pale blue disc with a white rim (vr_show_controllers, on by default)
+    CHECK(l && strstr(l, "_layer1_quad 64x64 mean 204.6 228.6 255.0") != NULL);
     if (l && !strstr(l, "mean 255.0 128.0")) fprintf(stderr, "%s\n", l);
     free(l);
 

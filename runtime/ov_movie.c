@@ -547,8 +547,12 @@ static uint64_t due_at(const Movie *m, const Ready *d) {
 }
 // One present: drop leading frames more than 1.5 periods late while the next one is due too, then hand over at most one
 // due frame (end of stream right after the last frame).
+// When a decoder last handed the game a frame (kern_now_ns), for movie_playing
+static volatile uint64_t g_last_handed_ns;
+
 static void release_due(Movie *m, uint64_t now) {
     if (!m->ndecoded) return;
+    __atomic_store_n(&g_last_handed_ns, kern_now_ns(), __ATOMIC_RELAXED);
     if (!pace_on()) {
         for (int i = 0; i < m->ndecoded; i++) m->ready[m->nready++] = m->decoded[i];
         m->st.handed += m->ndecoded;
@@ -602,6 +606,11 @@ int movie_stats(uint64_t obj, MovieStats *out) {
     *out = m->st;
     plat_mutex_unlock_shared(&m->mu);
     return 1;
+}
+
+int movie_playing(void) {
+    uint64_t t = __atomic_load_n(&g_last_handed_ns, __ATOMIC_RELAXED);
+    return t && kern_now_ns() - t < 500000000ull;
 }
 
 int movie_quiet(uint64_t obj) {

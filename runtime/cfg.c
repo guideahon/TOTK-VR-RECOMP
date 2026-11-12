@@ -64,6 +64,7 @@ static const char *const known[] = {
     "VR", "VR_ASYMMETRIC", "VR_CONTROLLERS", "VR_CONTROLS", "VR_HEAD", "VR_HEIGHT_OFFSET", "VR_LEFT_HANDED", "VR_MOTION",
     "VR_ROOMSCALE", "VR_RUMBLE", "VR_RUMBLE_STRENGTH", "VR_SCREEN_DISTANCE", "VR_SCREEN_WIDTH", "VR_SHIELD", "VR_SNAP_DEGREES",
     "VR_STEREO", "VR_SWING", "VR_SWING_ATTACK", "VR_THIRD_DISTANCE", "VR_TURN", "VR_TURN_SPEED", "VR_VIEW", "VR_WALK",
+    "VR_VIGNETTE", "VR_SHOW_CONTROLLERS", "VR_PLAY_POSITION", "VR_MOVIES", "VR_SHADOWS_ONCE",
     "VS_OUTS",
     "WALK_KEY", "WALK_SCALE", "WB_EXACT", "WB_FENCE_LIMIT", "WB_MERGE", "WINDOW_SIZE", "XLATE", "XLATE_ID", "XLATE_KEEP", "XLATE_PROCS",
     "ZSTD_CHECK", "ZSTD_NATIVE",
@@ -91,7 +92,8 @@ static const struct { const char *key, *section; } sections[] = {
     {"VR_RUMBLE", "vr"}, {"VR_RUMBLE_STRENGTH", "vr"}, {"VR_SCREEN_DISTANCE", "vr"}, {"VR_SCREEN_WIDTH", "vr"},
     {"VR_SHIELD", "vr"}, {"VR_SNAP_DEGREES", "vr"}, {"VR_STEREO", "vr"}, {"VR_SWING", "vr"},
     {"VR_SWING_ATTACK", "vr"}, {"VR_THIRD_DISTANCE", "vr"}, {"VR_TURN", "vr"}, {"VR_TURN_SPEED", "vr"},
-    {"VR_VIEW", "vr"}, {"VR_WALK", "vr"},
+    {"VR_VIEW", "vr"}, {"VR_WALK", "vr"}, {"VR_VIGNETTE", "vr"}, {"VR_SHOW_CONTROLLERS", "vr"},
+    {"VR_PLAY_POSITION", "vr"}, {"VR_MOVIES", "vr"}, {"VR_SHADOWS_ONCE", "vr"},
     {"MODS_DIR", "mods"}, {"MODS_ORDER", "mods"}, {"MODS_DISABLED", "mods"}, {"MODS_REBUILD", "mods"},
     {"TEX_HEAP_EXTRA_MB", "mods"},
     {"MENU_LANG", "language"}, {"LANG", "language"}, {"OPERATION_MODE", "language"},
@@ -214,7 +216,9 @@ static const CfgMeta metas[] = {
     {"VR_TURN_SPEED", "100", "20..300", LIVE}, {"VR_WALK", "head", "head|controller", LIVE},
     {"VR_ROOMSCALE", "1", "0|1", LIVE}, {"VR_RUMBLE", "1", "0|1", LIVE}, {"VR_RUMBLE_STRENGTH", "100", "0..400", LIVE},
     {"VR_MOTION", "1", "0|1", LIVE}, {"VR_SWING", "normal", "normal|easy", LIVE}, {"VR_SWING_ATTACK", "1", "0|1", LIVE},
-    {"VR_SHIELD", "1", "0|1", LIVE},
+    {"VR_SHIELD", "1", "0|1", LIVE}, {"VR_VIGNETTE", "off", "off|low|medium|high", LIVE},
+    {"VR_SHOW_CONTROLLERS", "1", "0|1", LIVE}, {"VR_PLAY_POSITION", "seated", "seated|standing", LIVE},
+    {"VR_MOVIES", "screen", "screen|world", LIVE}, {"VR_SHADOWS_ONCE", "1", "0|1", RESTART},
 };
 
 static int is_known(const char *key) {

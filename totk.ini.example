@@ -477,3 +477,13 @@
 # vr_swing = normal
 # vr_swing_attack = 1
 # vr_shield = 1
+# Comfort: while a stick walks or turns Link the edges of the view go dark (vr_vignette: off, low, medium, high).
+# vr_show_controllers = 1 shows a small disc at each controller. vr_play_position: seated (first person at Link's eye
+# height, vr_height_offset on top) or standing (at your own height over the floor, from the headset's STAGE space).
+# vr_vignette = off
+# vr_show_controllers = 1
+# vr_play_position = seated
+# The game's pre-rendered movies (cutscenes made as video) on the virtual screen (screen) or with head tracking
+# (world). vr_shadows_once = 1: in stereo the right eye reuses the left eye's sun shadows (faster; read at start).
+# vr_movies = screen
+# vr_shadows_once = 1

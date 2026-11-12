@@ -569,6 +569,23 @@ static const char *const text_en[UI_TEXT_COUNT] = {
     [UI_VR_SWING_ATTACK_DESC] = "A swing presses the game's attack button.",
     [UI_VR_SHIELD] = "Raise the shield by hand",
     [UI_VR_SHIELD_DESC] = "The other hand raised in front of your face guards (as holding ZL).",
+    [UI_VR_GROUP_COMFORT] = "Comfort",
+    [UI_VR_VIGNETTE] = "Comfort vignette",
+    [UI_VR_VIGNETTE_DESC] = "While a stick walks or turns Link, the edges of the view go dark (less motion sickness). Walking in your room does not trigger it.",
+    [UI_VR_VIGNETTE_LOW] = "Low",
+    [UI_VR_VIGNETTE_MEDIUM] = "Medium",
+    [UI_VR_VIGNETTE_HIGH] = "High",
+    [UI_VR_SHOW_CONTROLLERS] = "Show the controllers",
+    [UI_VR_SHOW_CONTROLLERS_DESC] = "A small disc at each controller, to find them and to see where your hands are.",
+    [UI_VR_PLAY_POSITION] = "Play position",
+    [UI_VR_PLAY_POSITION_DESC] = "Seated: first person at Link's eye height. Standing: at your own height over the floor, as the headset measures it (crouching lowers the view as much).",
+    [UI_VR_MOVIES] = "Movie cutscenes",
+    [UI_VR_MOVIES_DESC] = "The game's pre-rendered cutscenes (videos): on the virtual screen in front of you, or "
+                          "with head tracking like the rest of the game.",
+    [UI_VR_MOVIES_SCREEN] = "Virtual screen",
+    [UI_VR_MOVIES_WORLD] = "Head tracking",
+    [UI_VR_SEATED] = "Seated",
+    [UI_VR_STANDING] = "Standing",
 };
 
 static const char *const text_ru[UI_TEXT_COUNT] = {

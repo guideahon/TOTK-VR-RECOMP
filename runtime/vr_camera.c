@@ -86,6 +86,8 @@ static struct {
     float tan_x, tan_y;
     float off_x, off_y;    // the frustum's centre off the view's axis (tan units; 0: symmetric)
     bool fp_now;           // the last camera was set in first person
+    float neutral_floor;   // the head's height over the floor (STAGE) when recentred, for vr_play_position = standing
+    bool neutral_floor_ok;
     float eye_height, forward;  // first person: the eye above Link's feet, and ahead of his head's centre (m)
     struct {               // roomscale: Link walked under the head (vr_roomscale_stick)
         bool driving, have_lp;
@@ -110,7 +112,22 @@ static bool head_on(void) {
     return c.head;
 }
 
-bool vr_world_view(void) { return vr_enabled() && vr_session_running() && head_on(); }
+// In play with the head. A movie (TotK's pre-rendered cutscenes, ov_movie.c) goes on the virtual screen instead, flat
+// as it was made (BetterVR shows such cutscenes on a screen too); vr_movies = world keeps the head on the camera.
+bool vr_world_view(void) {
+    if (!vr_enabled() || !vr_session_running() || !head_on()) return false;
+    extern int movie_playing(void);
+    static int was;
+    int m = movie_playing();
+    if (m != was) {
+        was = m;
+        rt_log("vr: %s", m ? (vr_options()->movies_on_screen ? "a movie plays: on the virtual screen"
+                                                              : "a movie plays (vr_movies = world: with the head)")
+                           : "the movie ended");
+    }
+    if (vr_options()->movies_on_screen && m) return false;
+    return true;
+}
 
 static bool stereo_on(void) {
     if (c.stereo < 0) {
@@ -239,6 +256,10 @@ static void camera_lookat(float *f) {
     if (!c.have_neutral || c.recenter) {
         c.neutral = head;
         c.have_neutral = true;
+        extern bool vr_head_stage_height(float *h);
+        float fh;
+        c.neutral_floor_ok = vr_head_stage_height(&fh) && fh > 0.5f && fh < 2.5f;
+        if (c.neutral_floor_ok) c.neutral_floor = fh;
         c.recenter = false;
         rt_log("vr: recentred: head at %.2f %.2f %.2f, heading %.1f deg", head.p.x, head.p.y, head.p.z,
                vr_quat_heading(head.q) * 57.29578f);
@@ -257,7 +278,11 @@ static void camera_lookat(float *f) {
     bool have_lp = frame_rate_player_pos(lp);
     c.fp_now = false;
     if (o->first_person && have_lp) {
-        geye = vr_v3(lp[0] + sinf(yaw + c.turn) * c.forward, lp[1] + c.eye_height + o->height_cm / 100.0f,
+        // seated: the recentred head at Link's eye height; standing: at the player's own height over the floor when
+        // the head was recentred (the head's rise and fall since then come on top, through the anchor)
+        float eh = c.eye_height;
+        if (o->standing && c.neutral_floor_ok) eh = c.neutral_floor;
+        geye = vr_v3(lp[0] + sinf(yaw + c.turn) * c.forward, lp[1] + eh + o->height_cm / 100.0f,
                      lp[2] + cosf(yaw + c.turn) * c.forward);
         c.fp_now = true;
         c.fp_cameras++;
@@ -482,6 +507,17 @@ bool vr_present_take(vr_view *out) {
 }
 
 uint64_t vr_camera_updates(void) { return c.updates; }
+uint64_t vr_shadow_skips;   // right-eye draws and clears into the sun cascades left out (vk_exec.c)
+
+// vk_exec.c (the replay, on the game's render thread): the eye the frame being drawn is for, in play in stereo (0 left,
+// 1 right; -1 otherwise). The pair's state flips at the present, after the frame's commands were replayed.
+int vr_frame_eye(void) {
+    if (!vr_world_view() || !stereo_on()) return -1;
+    pthread_mutex_lock(&lock);
+    int eye = c.cam_set ? vr_pair_eye(&c.pair) : -1;
+    pthread_mutex_unlock(&lock);
+    return eye;
+}
 uint64_t vr_stereo_pairs(void) { return c.pair.pairs; }
 #endif
 

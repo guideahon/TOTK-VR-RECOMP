@@ -21,6 +21,10 @@ typedef struct {
     bool rumble;
     int rumble_pct;        // 0..400
     bool motion, swing_easy, swing_attack, shield;
+    int vignette;          // vr_vignette: 0 off, 1 low, 2 medium, 3 high
+    bool show_controllers; // vr_show_controllers: a disc at each controller
+    bool movies_on_screen; // vr_movies: screen (movies on the virtual screen) or world
+    bool standing;         // vr_play_position: standing (first person at the player's real height) or seated
 } vr_options_t;
 
 // The options now (never NULL; the table defaults before cfg_init)

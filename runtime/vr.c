@@ -17,6 +17,8 @@
 #include "vk.h"
 #include "vr.h"
 #include "vr_internal.h"
+#include "vr_options.h"
+#include <math.h>
 
 #define XR_USE_GRAPHICS_API_VULKAN
 #include <openxr/openxr.h>
@@ -25,6 +27,7 @@
 #define MAX_IMAGES 8
 #define SLOTS 3
 
+static void ov_dropped(void);
 static bool asked, enabled;
 static char status[192] = "off";
 static XrInstance g_inst = XR_NULL_HANDLE;
@@ -35,7 +38,7 @@ static PFN_xrCreateVulkanInstanceKHR CreateInstance;
 static PFN_xrGetVulkanGraphicsDevice2KHR GetDevice;
 static PFN_xrCreateVulkanDeviceKHR CreateDevice;
 
-enum { SC_SCREEN, SC_LEFT, SC_RIGHT, SC_COUNT };
+enum { SC_SCREEN, SC_LEFT, SC_RIGHT, SC_VIGNETTE, SC_MARKER, SC_COUNT };
 typedef struct {
     XrSwapchain h;
     VkFormat fmt;
@@ -46,7 +49,7 @@ typedef struct {
 
 static struct {
     XrSession session;
-    XrSpace local, view;
+    XrSpace local, view, stage;   // (stage: the floor; XR_NULL_HANDLE when the runtime has none)
     XrSessionState state;
     bool running;
     swc sc[SC_COUNT];       // the virtual screen (and mono), the left and right eyes
@@ -237,6 +240,8 @@ void vr_vk_session_start(void) {
     }
     rci.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_VIEW;
     xrCreateReferenceSpace(g.session, &rci, &g.view);
+    rci.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_STAGE;   // (vr_play_position = standing: the head's height)
+    if (XR_FAILED(xrCreateReferenceSpace(g.session, &rci, &g.stage))) g.stage = XR_NULL_HANDLE;
     VkCommandPoolCreateInfo pci = {.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
                                    .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, .queueFamilyIndex = c->gfx_family};
     vkCreateCommandPool(c->device, &pci, NULL, &g.pool);
@@ -264,12 +269,15 @@ static void drop_swapchains(void) {
         if (g.sc[k].h) xrDestroySwapchain(g.sc[k].h);
         g.sc[k] = (swc){0};
     }
+    ov_dropped();
 }
 
 static void end_session(const char *why) {
     drop_swapchains();
     if (g.local) xrDestroySpace(g.local);
     if (g.view) xrDestroySpace(g.view);
+    if (g.stage) xrDestroySpace(g.stage);
+    g.stage = XR_NULL_HANDLE;
     if (g.session) xrDestroySession(g.session);
     g.local = g.view = XR_NULL_HANDLE;
     g.session = XR_NULL_HANDLE;
@@ -327,7 +335,8 @@ static bool copyable(VkFormat f) {
            f == VK_FORMAT_R8G8B8A8_SRGB;
 }
 
-static const char *const sc_name[SC_COUNT] = {"virtual screen", "left eye", "right eye"};
+static const char *const sc_name[SC_COUNT] = {"virtual screen", "left eye", "right eye", "comfort vignette",
+                                               "controller marker"};
 
 static bool make_swapchain(int k, VkExtent2D ext, VkFormat want) {
     uint32_t n = 0;
@@ -428,10 +437,189 @@ static bool copy_to(int k, VkImage src, VkImageLayout layout, VkFormat fmt, int 
     return released;
 }
 
+// ---- overlays, from Savage Wind VR (xr_vulkan.c): quads over the picture, their images made once in a host buffer
+// and copied into their swapchains only when they change (the runtime keeps showing a swapchain's last image).
+//   - the comfort vignette (vr_vignette: off, low, medium, high): while a stick walks or turns Link (vr_input.c
+//     vr_stick_motion; roomscale walking is not counted) the edges of the view go dark: a quad in the head's space,
+//     black with an alpha ring, VIG_LEVELS rings from open to closed;
+//   - the controllers (vr_show_controllers): a 6 cm disc in each hand's grip space. TotK's first person has no arms
+//     following the controllers, so they are shown everywhere, the virtual screen and play alike. ----
+#define VIG_SIZE 128
+#define VIG_LEVELS 12
+#define VIG_SPAN 2.0f     // the vignette's half-width in tangents (1 m away, 4 m across: past a Quest's field)
+#define MARKER_SIZE 64
+#define MARKER_M 0.06f    // a marker's width (m)
+static struct {
+    VkBuffer buf;
+    VkDeviceMemory mem;
+    uint8_t *map;
+    bool failed;
+    float level;          // the vignette, smoothed, 0..1
+    int vig_shown;        // the level its swapchain has (0 none, -1 not made)
+    bool mk_made;         // the markers' swapchain has its image
+    uint64_t vig_frames, mk_frames;   // headset frames each was in
+} ov = {.vig_shown = -1};
+
+float vr_stick_motion(void);        // vr_input.c
+XrSpace vr_hand_space(int hand);    // vr_input.c
+uint64_t vr_vignette_frames(void) { return ov.vig_frames; }
+uint64_t vr_marker_frames(void) { return ov.mk_frames; }
+
+#define MK_OFF ((VkDeviceSize)VIG_LEVELS * VIG_SIZE * VIG_SIZE * 4)
+
+static void ov_dropped(void) { ov.vig_shown = -1, ov.mk_made = false; }
+
+static bool ov_buffer(void) {
+    if (ov.map) return true;
+    if (ov.failed) return false;
+    VkCtx *c = vk_ctx();
+    ov.failed = true;
+    VkBufferCreateInfo bi = {.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, .size = MK_OFF + MARKER_SIZE * MARKER_SIZE * 4,
+                             .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT, .sharingMode = VK_SHARING_MODE_EXCLUSIVE};
+    if (vkCreateBuffer(c->device, &bi, NULL, &ov.buf) != VK_SUCCESS) return false;
+    VkMemoryRequirements mr;
+    vkGetBufferMemoryRequirements(c->device, ov.buf, &mr);
+    VkPhysicalDeviceMemoryProperties mp;
+    vkGetPhysicalDeviceMemoryProperties(c->phys, &mp);
+    const VkMemoryPropertyFlags want = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    uint32_t type = UINT32_MAX;
+    for (uint32_t i = 0; i < mp.memoryTypeCount && type == UINT32_MAX; i++)
+        if ((mr.memoryTypeBits & (1u << i)) && (mp.memoryTypes[i].propertyFlags & want) == want) type = i;
+    VkMemoryAllocateInfo ai = {.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, .allocationSize = mr.size,
+                               .memoryTypeIndex = type};
+    void *p = NULL;
+    if (type == UINT32_MAX || vkAllocateMemory(c->device, &ai, NULL, &ov.mem) != VK_SUCCESS ||
+        vkBindBufferMemory(c->device, ov.buf, ov.mem, 0) != VK_SUCCESS ||
+        vkMapMemory(c->device, ov.mem, 0, VK_WHOLE_SIZE, 0, &p) != VK_SUCCESS || !p) {
+        rt_log("vr: no host memory for the overlays: no vignette, no controller markers");
+        return false;
+    }
+    ov.map = p;
+    for (int l = 0; l < VIG_LEVELS; l++) {
+        // level l + 1: clear within `clear` (tangents: 1.0 is 45 degrees off the line of sight), dark from clear + 0.5;
+        // the strongest leaves about 30 degrees around the gaze clear
+        float s = (float)(l + 1) / VIG_LEVELS, clear = 1.9f - 1.35f * s;
+        for (int y = 0; y < VIG_SIZE; y++)
+            for (int x = 0; x < VIG_SIZE; x++) {
+                float tx = ((x + 0.5f) / VIG_SIZE * 2 - 1) * VIG_SPAN, ty = ((y + 0.5f) / VIG_SIZE * 2 - 1) * VIG_SPAN;
+                float r = sqrtf(tx * tx + ty * ty), t = (r - clear) / 0.5f;
+                t = t < 0 ? 0 : t > 1 ? 1 : t;
+                uint8_t *q = ov.map + 4 * ((size_t)l * VIG_SIZE * VIG_SIZE + (size_t)y * VIG_SIZE + x);
+                q[0] = q[1] = q[2] = 0;
+                q[3] = (uint8_t)(255 * t * t * (3 - 2 * t) + 0.5f);
+            }
+    }
+    for (int y = 0; y < MARKER_SIZE; y++)   // a pale blue disc (150, 200, 255) with a white rim, R G B A
+        for (int x = 0; x < MARKER_SIZE; x++) {
+            float dx = (x + 0.5f) / MARKER_SIZE * 2 - 1, dy = (y + 0.5f) / MARKER_SIZE * 2 - 1, r = sqrtf(dx * dx + dy * dy);
+            uint8_t *q = ov.map + MK_OFF + 4 * (y * MARKER_SIZE + x);
+            float edge = (1 - r) * MARKER_SIZE / 2, a = edge < 0 ? 0 : edge > 1 ? 1 : edge;
+            bool rim = r > 0.78f;
+            q[0] = rim ? 255 : 150, q[1] = rim ? 255 : 200, q[2] = 255;
+            q[3] = (uint8_t)(a * (rim ? 255 : 170) + 0.5f);
+        }
+    ov.failed = false;
+    return true;
+}
+
+// the overlay swapchain k (made at size, R G B A or else B G R A) gets the size x size image at off of the buffer
+static bool ov_upload(int k, uint32_t size, VkDeviceSize off) {
+    if (!ov_buffer()) return false;
+    swc *sc = &g.sc[k];
+    VkExtent2D ext = {size, size};
+    if (!sc->h && !make_swapchain(k, ext, VK_FORMAT_R8G8B8A8_UNORM)) {
+        if (!make_swapchain(k, ext, VK_FORMAT_B8G8R8A8_UNORM)) return false;
+        if (k == SC_MARKER)   // (the vignette is black: either order; the marker's red and blue swapped into place)
+            for (int i = 0; i < MARKER_SIZE * MARKER_SIZE; i++) {
+                uint8_t *q = ov.map + MK_OFF + 4 * i, t = q[0];
+                q[0] = q[2], q[2] = t;
+            }
+    }
+    VkCtx *c = vk_ctx();
+    uint32_t idx = 0;
+    XrSwapchainImageWaitInfo wi = {XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO, NULL, XR_INFINITE_DURATION};
+    if (!vr_xr_ok(xrAcquireSwapchainImage(sc->h, NULL, &idx), "xrAcquireSwapchainImage") ||
+        !vr_xr_ok(xrWaitSwapchainImage(sc->h, &wi), "xrWaitSwapchainImage"))
+        return false;
+    unsigned s = g.slot++ % SLOTS;
+    vkWaitForFences(c->device, 1, &g.fence[s], VK_TRUE, UINT64_MAX);
+    vkResetFences(c->device, 1, &g.fence[s]);
+    VkCommandBuffer cb = g.cb[s];
+    vkResetCommandBuffer(cb, 0);
+    VkCommandBufferBeginInfo bi = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+                                   .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
+    vkBeginCommandBuffer(cb, &bi);
+    VkImage dst = sc->images[idx];
+    barrier(cb, dst, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_2_NONE, 0,
+            VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+    VkBufferImageCopy rg = {.bufferOffset = off, .imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+                            .imageExtent = {size, size, 1}};
+    vkCmdCopyBufferToImage(cb, ov.buf, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &rg);
+    barrier(cb, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+            VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT);
+    vkEndCommandBuffer(cb);
+    VkSubmitInfo si = {.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &cb};
+    vk_queue_lock();
+    vkQueueSubmit(c->gfx_queue, 1, &si, g.fence[s]);
+    bool released = vr_xr_ok(xrReleaseSwapchainImage(sc->h, NULL), "xrReleaseSwapchainImage");
+    vk_queue_unlock();
+    return released;
+}
+
+static XrCompositionLayerQuad ov_quad(XrSpace space, XrPosef pose, float size, int k, uint32_t px) {
+    XrCompositionLayerQuad q = {XR_TYPE_COMPOSITION_LAYER_QUAD};
+    q.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT | XR_COMPOSITION_LAYER_UNPREMULTIPLIED_ALPHA_BIT;
+    q.space = space;
+    q.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+    q.pose = pose;
+    q.size = (XrExtent2Df){size, size};
+    q.subImage.swapchain = g.sc[k].h;
+    q.subImage.imageRect = (XrRect2Di){{0, 0}, {(int32_t)px, (int32_t)px}};
+    return q;
+}
+
+// the overlays of a headset frame over its layer (world: the head's view in play): into layers / quads from n
+static uint32_t overlays(bool world, const XrCompositionLayerBaseHeader **layers, XrCompositionLayerQuad *quads,
+                         uint32_t n) {
+    const vr_options_t *o = vr_options();
+    static const float strength[] = {0, 0.55f, 0.8f, 1.0f};
+    float want = world && o->vignette > 0 && o->vignette <= 3 ? strength[o->vignette] * vr_stick_motion() : 0;
+    // (in: a time constant of 0.15 s; out: 0.3 s, nearly gone in a second)
+    float dt = g.period > 0 ? (float)g.period / 1e9f : 1 / 90.0f, k = want > ov.level ? dt / 0.15f : dt / 0.3f;
+    ov.level += (want - ov.level) * (k > 1 ? 1 : k);
+    if (ov.level < 0.01f) ov.level = 0;
+    int l = (int)(ov.level * VIG_LEVELS + 0.5f);
+    if (l > VIG_LEVELS) l = VIG_LEVELS;
+    if (l && l != ov.vig_shown && ov_upload(SC_VIGNETTE, VIG_SIZE, (VkDeviceSize)(l - 1) * VIG_SIZE * VIG_SIZE * 4))
+        ov.vig_shown = l;
+    uint32_t q = 0;
+    if (l && ov.vig_shown > 0) {   // over the scene, a metre ahead of the eyes
+        quads[q] = ov_quad(g.view, (XrPosef){{0, 0, 0, 1}, {0, 0, -1}}, 2 * VIG_SPAN, SC_VIGNETTE, VIG_SIZE);
+        layers[n++] = (const XrCompositionLayerBaseHeader *)&quads[q++];
+        ov.vig_frames++;
+    }
+    if (o->show_controllers && (ov.mk_made || (ov.mk_made = ov_upload(SC_MARKER, MARKER_SIZE, MK_OFF)))) {
+        bool any = false;
+        for (int h = 0; h < 2; h++) {
+            XrSpace sp = vr_hand_space(h);
+            if (sp == XR_NULL_HANDLE) continue;
+            // (facing back along the controller, toward the player; a little ahead of the grip, over the knuckles)
+            quads[q] = ov_quad(sp, (XrPosef){{0, 0, 0, 1}, {0, 0, -0.03f}}, MARKER_M, SC_MARKER, MARKER_SIZE);
+            layers[n++] = (const XrCompositionLayerBaseHeader *)&quads[q++];
+            any = true;
+        }
+        if (any) ov.mk_frames++;
+    }
+    return n;
+}
+
 static void end_frame(const XrFrameState *fs, const XrCompositionLayerBaseHeader *layer) {
-    const XrCompositionLayerBaseHeader *layers[1] = {layer};
+    const XrCompositionLayerBaseHeader *layers[4] = {layer};
+    XrCompositionLayerQuad quads[3];
+    uint32_t n = layer ? overlays(layer->type == XR_TYPE_COMPOSITION_LAYER_PROJECTION, layers, quads, 1) : 0;
     XrFrameEndInfo ei = {XR_TYPE_FRAME_END_INFO, NULL, fs->predictedDisplayTime, XR_ENVIRONMENT_BLEND_MODE_OPAQUE,
-                         layer ? 1u : 0u, layers};
+                         n, layers};
     vk_queue_lock();  // (the runtime may use the queue in xrEndFrame)
     vr_xr_ok(xrEndFrame(g.session, &ei), "xrEndFrame");
     vk_queue_unlock();
@@ -439,14 +627,16 @@ static void end_frame(const XrFrameState *fs, const XrCompositionLayerBaseHeader
     if (g.frames % 500 == 0) {
         extern uint64_t vr_roomscale_frames(void), vr_fp_cameras(void), vr_offset_calls(void), vr_rumble_pulses(void),
             vr_gesture_count(void);
+        extern uint64_t vr_shadow_skips;
         rt_log("vr: %llu headset frames, %llu shown, %llu with the head (stereo pairs %llu); window skipped %llu right "
                "frames; first-person cameras %llu, off-centre projections %llu, roomscale %llu, rumble pulses %llu, "
-               "gestures %llu",
+               "gestures %llu, vignette %llu, controller markers %llu, right-eye shadow draws left out %llu",
                (unsigned long long)g.frames, (unsigned long long)g.rendered, (unsigned long long)g.world,
                (unsigned long long)vr_stereo_pairs(), (unsigned long long)g.window_skipped,
                (unsigned long long)vr_fp_cameras(), (unsigned long long)vr_offset_calls(),
                (unsigned long long)vr_roomscale_frames(), (unsigned long long)vr_rumble_pulses(),
-               (unsigned long long)vr_gesture_count());
+               (unsigned long long)vr_gesture_count(), (unsigned long long)ov.vig_frames,
+               (unsigned long long)ov.mk_frames, (unsigned long long)vr_shadow_skips);
     }
 }
 
@@ -528,6 +718,17 @@ bool vr_present(VkImage src, VkImageLayout layout, VkFormat fmt, int w, int h) {
 }
 
 uint64_t vr_window_skipped(void) { return g.window_skipped; }
+
+// vr_camera.c (vr_play_position = standing): the head's height over the floor now (STAGE space), false without one
+bool vr_head_stage_height(float *h) {
+    XrTime t = vr_next_display_time();
+    XrSpaceLocation l = {XR_TYPE_SPACE_LOCATION};
+    if (!t || !g.stage || !g.view || XR_FAILED(xrLocateSpace(g.view, g.stage, t, &l)) ||
+        !(l.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT))
+        return false;
+    *h = l.pose.position.y;
+    return true;
+}
 
 void vr_stats(uint64_t *frames, uint64_t *rendered, int *state) {
     *frames = g.frames, *rendered = g.rendered, *state = (int)g.state;

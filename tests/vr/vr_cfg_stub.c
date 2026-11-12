@@ -13,6 +13,8 @@ static const struct { const char *name, *def; } defaults[] = {
     {"TOTK_VR_SNAP_DEGREES", "45"}, {"TOTK_VR_TURN_SPEED", "100"}, {"TOTK_VR_WALK", "head"},
     {"TOTK_VR_ROOMSCALE", "1"}, {"TOTK_VR_RUMBLE", "1"}, {"TOTK_VR_RUMBLE_STRENGTH", "100"}, {"TOTK_VR_MOTION", "1"},
     {"TOTK_VR_SWING", "normal"}, {"TOTK_VR_SWING_ATTACK", "1"}, {"TOTK_VR_SHIELD", "1"},
+    {"TOTK_VR_VIGNETTE", "off"}, {"TOTK_VR_SHOW_CONTROLLERS", "1"}, {"TOTK_VR_PLAY_POSITION", "seated"},
+    {"TOTK_VR_MOVIES", "screen"}, {"TOTK_VR_SHADOWS_ONCE", "1"},
 };
 
 const char *cfg_get(const char *name) {

@@ -31,6 +31,11 @@ const vr_options_t *vr_options(void) {
     n.swing_easy = !strcmp(cfg_value("TOTK_VR_SWING"), "easy");
     n.swing_attack = cfg_bool("TOTK_VR_SWING_ATTACK");
     n.shield = cfg_bool("TOTK_VR_SHIELD");
+    const char *vg = cfg_value("TOTK_VR_VIGNETTE");
+    n.vignette = !strcmp(vg, "low") ? 1 : !strcmp(vg, "medium") ? 2 : !strcmp(vg, "high") ? 3 : 0;
+    n.show_controllers = cfg_bool("TOTK_VR_SHOW_CONTROLLERS");
+    n.movies_on_screen = strcmp(cfg_value("TOTK_VR_MOVIES"), "world") != 0;
+    n.standing = !strcmp(cfg_value("TOTK_VR_PLAY_POSITION"), "standing");
     o = n;   // (one thread at a time changes it: the game's input and camera threads see whole values either way)
     return &o;
 }

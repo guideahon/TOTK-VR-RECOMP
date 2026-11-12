@@ -1138,6 +1138,8 @@ static void tab_vr(float scale) {
     static const UiTextId views[] = {UI_VR_VIEW_FIRST, UI_VR_VIEW_THIRD};
     opt_choice("TOTK_VR_VIEW", UI_VR_VIEW, views, 2, UI_VR_VIEW_DESC);
     opt_slider("TOTK_VR_HEIGHT_OFFSET", UI_VR_HEIGHT, -50, 50, UI_VR_HEIGHT_DESC, 1, "%.0f cm");
+    static const UiTextId movies[] = {UI_VR_MOVIES_SCREEN, UI_VR_MOVIES_WORLD};
+    opt_choice("TOTK_VR_MOVIES", UI_VR_MOVIES, movies, 2, UI_VR_MOVIES_DESC);
     opt_slider("TOTK_VR_THIRD_DISTANCE", UI_VR_THIRD_DISTANCE, 25, 300, UI_VR_THIRD_DISTANCE_DESC, 5, "%.0f %%");
     opt_toggle("TOTK_VR_ASYMMETRIC", UI_VR_ASYMMETRIC, UI_VR_ASYMMETRIC_DESC);
     opt_group(UI_VR_GROUP_CONTROLS);
@@ -1159,6 +1161,12 @@ static void tab_vr(float scale) {
     opt_choice("TOTK_VR_SWING", UI_VR_SWING, swings, 2, UI_VR_SWING_DESC);
     opt_toggle("TOTK_VR_SWING_ATTACK", UI_VR_SWING_ATTACK, UI_VR_SWING_ATTACK_DESC);
     opt_toggle("TOTK_VR_SHIELD", UI_VR_SHIELD, UI_VR_SHIELD_DESC);
+    opt_group(UI_VR_GROUP_COMFORT);
+    static const UiTextId vignettes[] = {UI_MENU_OFF, UI_VR_VIGNETTE_LOW, UI_VR_VIGNETTE_MEDIUM, UI_VR_VIGNETTE_HIGH};
+    opt_choice("TOTK_VR_VIGNETTE", UI_VR_VIGNETTE, vignettes, 4, UI_VR_VIGNETTE_DESC);
+    opt_toggle("TOTK_VR_SHOW_CONTROLLERS", UI_VR_SHOW_CONTROLLERS, UI_VR_SHOW_CONTROLLERS_DESC);
+    static const UiTextId positions[] = {UI_VR_SEATED, UI_VR_STANDING};
+    opt_choice("TOTK_VR_PLAY_POSITION", UI_VR_PLAY_POSITION, positions, 2, UI_VR_PLAY_POSITION_DESC);
     opt_end();
 }
 #endif

@@ -651,7 +651,8 @@ static XrResult XRAPI_CALL fx_EndFrame(XrSession h, const XrFrameEndInfo *ei) {
                             {q->pose.position.x, q->pose.position.y, q->pose.position.z}};
         vr_pose room = vr_pose_mul(space_at(sp, ei->displayTime), in_space);
         logf_(s->inst, "quad %u space %s at %.3f %.3f %.3f size %.3f %.3f\n", i,
-              sp->type == XR_REFERENCE_SPACE_TYPE_VIEW && !sp->hand ? "view" : "local", room.p.x, room.p.y, room.p.z,
+              sp->hand == 1 ? "left_hand" : sp->hand == 2 ? "right_hand" :
+              sp->type == XR_REFERENCE_SPACE_TYPE_VIEW ? "view" : "local", room.p.x, room.p.y, room.p.z,
               q->size.width, q->size.height);
     }
     if (!s->synced && s->state == XR_SESSION_STATE_READY) {  // the first frame: the session comes to the front
@@ -724,10 +725,20 @@ static vr_pose hand_at(session *s, int h, XrTime t) {
     return r;
 }
 
-// where a space is in STAGE space at time t (LOCAL is the same in this runtime: the floor at the origin)
+// where a space is in STAGE space at time t. LOCAL is STAGE raised by FAKE_XR_LOCAL_HEIGHT (m, default 0: the floor
+// at the origin; a headset's LOCAL is at about the head's height when it starts); the script's poses are LOCAL ones
+static float local_height(void) {
+    static float h = -1;
+    if (h < 0) h = getenv("FAKE_XR_LOCAL_HEIGHT") ? (float)atof(getenv("FAKE_XR_LOCAL_HEIGHT")) : 0;
+    return h;
+}
+
 static vr_pose space_at(space *sp, XrTime t) {
-    vr_pose ref = sp->hand ? hand_at(sp->s, sp->hand - 1, t)
-                : sp->type == XR_REFERENCE_SPACE_TYPE_VIEW ? sp->s->head : vr_pose_identity();
+    vr_pose lift = vr_pose_identity();
+    lift.p.y = local_height();
+    vr_pose ref = sp->hand ? vr_pose_mul(lift, hand_at(sp->s, sp->hand - 1, t))
+                : sp->type == XR_REFERENCE_SPACE_TYPE_VIEW ? vr_pose_mul(lift, sp->s->head)
+                : sp->type == XR_REFERENCE_SPACE_TYPE_LOCAL ? lift : vr_pose_identity();
     return vr_pose_mul(ref, sp->pose);
 }
 

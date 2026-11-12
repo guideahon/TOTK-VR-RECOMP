@@ -36,7 +36,9 @@ void movie_set_guest(const MovieGuest *g);                 // probe: stand-ins i
 void movie_set_clock(uint64_t (*clock)(void));             // probe: a fake clock (ns) for the pacing; NULL = real
 void movie_set_pace(int on);                               // probe: 0 hands every decoded frame over at the next tick
 int movie_stats(uint64_t obj, MovieStats *out);            // counters of the decoder at guest object obj; 0 if none
-int movie_quiet(uint64_t obj);                             // 1 when its worker is idle and cannot take more input now
+int movie_quiet(uint64_t obj);
+// 1 while a movie plays: a decoder handed the game a frame in the last 0.5 s (VR shows movies on its virtual screen)
+int movie_playing(void);                             // 1 when its worker is idle and cannot take more input now
 
 // Keeping a movie's shape on an output of another shape (ov_movie.c): the picture is shrunk inside the frame, with
 // black (Y 16, U = V 128) around it. movie_fit_new returns NULL when the shapes agree within 1%: copy the frame.

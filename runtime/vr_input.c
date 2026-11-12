@@ -144,6 +144,14 @@ static struct {
     uint32_t gestures;     // gestures that fired (for `vr`)
 } in = {.lock = PTHREAD_MUTEX_INITIALIZER, .turn_speed = 1};
 
+// how much the sticks move or turn the view (0..1), for the comfort vignette (vr.c overlays): the walk stick's push
+// and the turn stick's, as the game gets them (any controller), a snap turn for 0.3 s; roomscale walking (the
+// player's own steps) is not counted
+static struct {
+    _Atomic float stick;   // the last input's
+    _Atomic double snap_s; // the last snap turn (update's clock, s)
+} moving;
+
 static XrPath path(XrInstance inst, const char *s) {
     XrPath p = XR_NULL_PATH;
     xrStringToPath(inst, s, &p);
@@ -458,13 +466,26 @@ static void update(void) {
         vr_pad_map(&in.pad, &p, now / 1e9, &in.out);
     }
     in.out.rx = (int32_t)(in.out.rx * in.turn_speed);
-    if (in.out.snap) vr_turn(-in.out.snap * in.snap_deg * 3.14159265f / 180);  // (right: clockwise from above)
+    if (in.out.snap) {
+        vr_turn(-in.out.snap * in.snap_deg * 3.14159265f / 180);  // (right: clockwise from above)
+        moving.snap_s = now / 1e9;
+    }
     if (in.motion) motion(now / 1e9);
     rumble_tick(now);
     walk_turn();
 }
 
 static int32_t clamp_axis(int32_t v) { return v > 32767 ? 32767 : v < -32767 ? -32767 : v; }
+
+float vr_stick_motion(void) {
+    double now = (double)plat_now_ns() / 1e9, since = now - moving.snap_s;
+    float snap = moving.snap_s > 0 && since >= 0 && since < 0.3 ? 1.0f : 0.0f;
+    float s = moving.stick;
+    return s > snap ? s : snap;
+}
+
+// vr.c: a hand's grip space (0 left, 1 right), for the controller markers
+XrSpace vr_hand_space(int hand) { return in.ready && hand >= 0 && hand < 2 ? in.hand[hand] : XR_NULL_HANDLE; }
 
 // runtime/hle/input.c, where the game's input is put together: the controllers' buttons and sticks added to it
 // (lx... NULL: the buttons only)
@@ -485,13 +506,19 @@ void vr_input_apply(uint64_t *b, int32_t *lx, int32_t *ly, int32_t *rx, int32_t 
     // roomscale (vr_camera.c): the player walking in the room walks Link, while no stick is pushed
     extern bool vr_roomscale_stick(float *x, float *y);
     float rsx, rsy;
+    bool room = false;
     if (vr_roomscale_stick(&rsx, &rsy) && abs(o.lx) < 3000 && abs(o.ly) < 3000 && abs(*lx) < 3000 && abs(*ly) < 3000)
-        o.lx = (int32_t)(rsx * 32767), o.ly = (int32_t)(rsy * 32767);
+        o.lx = (int32_t)(rsx * 32767), o.ly = (int32_t)(rsy * 32767), room = true;
     *lx = clamp_axis(*lx + o.lx), *ly = clamp_axis(*ly + o.ly);
+    float walking = room ? 0 : sqrtf((float)*lx * (float)*lx + (float)*ly * (float)*ly) / 32767.0f;
     // Head-only turning disables the horizontal camera stick from every input source in first-person play.
     // Vertical input remains available for aiming and Magnesis; menus and third person keep their normal controls.
     if (vr_options()->turn == VR_TURN_HEAD && vr_options()->first_person && vr_world_view()) *rx = 0, o.rx = 0;
     *rx = clamp_axis(*rx + o.rx), *ry = clamp_axis(*ry + o.ry);
+    float turning = (float)abs(*rx) / 32767.0f;
+    walking = walking < 0.15f ? 0 : walking > 1 ? 1 : walking;   // (the sticks' rest: none)
+    turning = turning < 0.15f ? 0 : turning;
+    moving.stick = walking > turning ? walking : turning;
 }
 
 // for `vr`: the controllers' state as the game last got it

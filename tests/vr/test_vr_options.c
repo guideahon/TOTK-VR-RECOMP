@@ -48,6 +48,8 @@ int main(int argc, char **argv) {
     CHECK(o->roomscale && o->rumble && o->motion && o->swing_attack && o->shield);
     CHECK(!o->swing_easy);
     CHECK_EQ_INT(o->rumble_pct, 100);
+    CHECK_EQ_INT(o->vignette, 0);
+    CHECK(o->show_controllers && !o->standing);
 
     VR_TEST("set, clamped, live");
     set("TOTK_VR_VIEW", "third");
@@ -56,7 +58,11 @@ int main(int argc, char **argv) {
     set("TOTK_VR_HEIGHT_OFFSET", "-20");
     set("TOTK_VR_CONTROLS", "classic");
     set("TOTK_VR_SWING", "easy");
+    set("TOTK_VR_VIGNETTE", "medium");
+    set("TOTK_VR_PLAY_POSITION", "standing");
     o = vr_options();
+    CHECK_EQ_INT(o->vignette, 2);
+    CHECK(o->standing);
     CHECK(!o->first_person);
     CHECK_EQ_INT(o->turn, VR_TURN_HEAD);
     CHECK_EQ_INT(o->snap_deg, 180);
@@ -76,7 +82,8 @@ int main(int argc, char **argv) {
         static const char *const keys[] = {"VR", "VR_HEAD", "VR_STEREO", "VR_CONTROLLERS", "VR_SCREEN_WIDTH",
             "VR_SCREEN_DISTANCE", "VR_VIEW", "VR_HEIGHT_OFFSET", "VR_THIRD_DISTANCE", "VR_ASYMMETRIC", "VR_CONTROLS",
             "VR_LEFT_HANDED", "VR_TURN", "VR_SNAP_DEGREES", "VR_TURN_SPEED", "VR_WALK", "VR_ROOMSCALE", "VR_RUMBLE",
-            "VR_RUMBLE_STRENGTH", "VR_MOTION", "VR_SWING", "VR_SWING_ATTACK", "VR_SHIELD"};
+            "VR_RUMBLE_STRENGTH", "VR_MOTION", "VR_SWING", "VR_SWING_ATTACK", "VR_SHIELD", "VR_VIGNETTE",
+            "VR_SHOW_CONTROLLERS", "VR_PLAY_POSITION", "VR_MOVIES", "VR_SHADOWS_ONCE"};
         extern const char *cfg_value(const char *);
         for (size_t i = 0; i < sizeof keys / sizeof *keys; i++) {
             char want[64], name[64];
