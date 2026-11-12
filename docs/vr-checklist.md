@@ -49,9 +49,25 @@ Antes: Virtual Desktop conectado a la PC, `Jugar TOTK VR.bat` desde el escritori
 20. **Combate con movimiento**: tajos y estocadas de la mano derecha atacan; mano izquierda levantada frente a la cara
     cubre; con ZL (gatillo izquierdo) y un empujón rápido de la mano izquierda: parry.
 
+## Agregado después
+
+21. **Viñeta de confort** (`vr_vignette`: off/low/medium/high): al caminar o girar con el stick se oscurecen los bordes;
+    caminando en la habitación no.
+22. **Controles visibles** (`vr_show_controllers`): un disco celeste en cada control, en menús y en juego.
+23. **Posición de juego** (`vr_play_position = standing`): en primera persona, los ojos a tu altura real sobre el piso
+    (recentrá parado). `seated`: a la altura de Link.
+24. **Cinemáticas** (`vr_events`): en `auto` las cinemáticas (Dm_*) se ven desde su cámara en 3D y las charlas en
+    primera persona; `vr_cutscene_bars = 1` las muestra planas en la pantalla virtual. Los videos pregrabados van a la
+    pantalla virtual (`vr_movies = screen`).
+25. **Sin parpadeos**: en juego no debería aparecer nunca, ni por un cuadro, la pantalla virtual o negro.
+26. **Sombras una vez por par** (`vr_shadows_once`): las sombras del sol se ven igual en los dos ojos; si un ojo tiene
+    sombras distintas o que tiemblan, ponelo en 0 y anotalo.
+27. **DLAA** (`dlaa = 1`, con la DLL de DLSS que baja el instalador): cada ojo tiene su propio historial; no debería
+    haber fantasmas de un ojo en el otro. No se pudo probar aquí (sin la DLL).
+
 ## Lo que todavía no está en TotK (no hace falta probarlo)
 
 Arco apuntado con la mano y su arco de trayectoria, el arma siguiendo la mano y golpeando por movimiento, agarre a dos
-manos, gesto de soltar, modos de cinemáticas y barras negras, menús/carga/pausa en la pantalla virtual, cabeza de Link
-oculta y brazos siguiendo los controles, sombras una vez por par de ojos, TAA por ojo. Cada uno necesita direcciones del
+manos, gesto de soltar, menús/carga/pausa en la pantalla virtual, cabeza de Link oculta y brazos siguiendo los
+controles, HUD separado. Para encontrarlos hace falta una partida guardada con arma y arco. Cada uno necesita direcciones del
 juego (1.2.1) o del renderizador que todavía no se encontraron: docs/vr-parity.md.
