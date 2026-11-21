@@ -456,10 +456,15 @@
 # vr_height_offset = 0
 # vr_third_distance = 100
 # vr_asymmetric = 1
-# Controls: bettervr (BetterVR's scheme and body gestures, docs/vr.md) or classic (a gamepad's layout on the VR
-# controllers). vr_left_handed = 1 swaps the hands' roles.
-# vr_controls = bettervr
+# Controls: quest (the Quest layout: A accepts, B cancels, the triggers are the hands' weapon and shield, the right grip
+# the bow, the right stick up jumps; with BetterVR's body gestures), bettervr (BetterVR's own buttons and the gestures,
+# docs/vr.md) or classic (a gamepad's layout on the VR controllers). vr_left_handed = 1 swaps the hands' roles.
+# vr_stick_deadzone: the VR controllers' sticks' dead zone (5 to 40 percent). vr_angvel_fix: auto (the hands'
+# turning speed fixed on Meta's own PC runtime, as BetterVR does), on or off.
+# vr_controls = quest
 # vr_left_handed = 0
+# vr_stick_deadzone = 12
+# vr_angvel_fix = auto
 # Turning: smooth (the right stick, at vr_turn_speed percent, 20 to 300), snap (steps of vr_snap_degrees, 5 to 180) or
 # head (the body follows the head only). vr_walk: the left stick walks the way the head looks (head) or the left
 # controller points (controller). vr_roomscale = 1: walking in the room walks Link (first person).
@@ -484,11 +489,12 @@
 # vr_show_controllers = 1
 # vr_play_position = seated
 # The game's pre-rendered movies (cutscenes made as video) on the virtual screen (screen) or with head tracking
-# (world). vr_shadows_once = 1: in stereo the right eye reuses the left eye's sun shadows (faster; read at start).
+# (world). vr_shadows_once = 1: in stereo the right eye reuses the left eye's sun shadows (faster, but the left eye's
+# shadows flicker; read at start).
 # vr_movies = screen
 # Events (cutscenes, talks): auto (cutscenes, named Dm_*, on the event's camera in 3D; the rest in first person),
 # first, third (always on the event's camera) or screen (flat on the virtual screen). vr_cutscene_bars = 1: an event on
 # its own camera is shown flat on the virtual screen, as the game frames it.
 # vr_events = auto
 # vr_cutscene_bars = 0
-# vr_shadows_once = 1
+# vr_shadows_once = 0

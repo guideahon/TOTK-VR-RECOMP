@@ -98,10 +98,42 @@ static const bind simple[] = {  // (the minimal one every runtime has: select is
     {A_A, "right/input/select/click"}, {A_MENU, "left/input/menu/click"}, {A_HAND, "left/input/grip/pose"},
     {A_HAND, "right/input/grip/pose"}, {-1, NULL},
 };
+static const bind pico[] = {  // (Pico 4 / Neo 3: as the Touch)
+    {A_MOVE, "left/input/thumbstick"}, {A_CAMERA, "right/input/thumbstick"}, {A_A, "right/input/a/click"},
+    {A_B, "right/input/b/click"}, {A_X, "left/input/x/click"}, {A_Y, "left/input/y/click"},
+    {A_LCLICK, "left/input/thumbstick/click"}, {A_RCLICK, "right/input/thumbstick/click"},
+    {A_MENU, "left/input/menu/click"}, {A_LTRIGGER, "left/input/trigger/value"},
+    {A_RTRIGGER, "right/input/trigger/value"}, {A_LGRIP, "left/input/squeeze/value"},
+    {A_RGRIP, "right/input/squeeze/value"}, {A_HAND, "left/input/grip/pose"}, {A_HAND, "right/input/grip/pose"},
+    {-1, NULL},
+};
+static const bind cosmos[] = {  // (HTC Vive Cosmos: as the Touch, the grips a click)
+    {A_MOVE, "left/input/thumbstick"}, {A_CAMERA, "right/input/thumbstick"}, {A_A, "right/input/a/click"},
+    {A_B, "right/input/b/click"}, {A_X, "left/input/x/click"}, {A_Y, "left/input/y/click"},
+    {A_LCLICK, "left/input/thumbstick/click"}, {A_RCLICK, "right/input/thumbstick/click"},
+    {A_MENU, "left/input/menu/click"}, {A_LTRIGGER, "left/input/trigger/value"},
+    {A_RTRIGGER, "right/input/trigger/value"}, {A_LGRIP, "left/input/squeeze/click"},
+    {A_RGRIP, "right/input/squeeze/click"}, {A_HAND, "left/input/grip/pose"}, {A_HAND, "right/input/grip/pose"},
+    {-1, NULL},
+};
+static const bind frame[] = {  // (Steam Frame: A / B on the right; the left bumper the ability (Y), its view button the
+                               // map (X), the right menu the menu, as BetterVR's)
+    {A_MOVE, "left/input/thumbstick"}, {A_CAMERA, "right/input/thumbstick"}, {A_A, "right/input/a/click"},
+    {A_B, "right/input/b/click"}, {A_X, "left/input/view/click"}, {A_Y, "left/input/bumper/click"},
+    {A_LCLICK, "left/input/thumbstick/click"}, {A_RCLICK, "right/input/thumbstick/click"},
+    {A_MENU, "right/input/menu/click"}, {A_LTRIGGER, "left/input/trigger/value"},
+    {A_RTRIGGER, "right/input/trigger/value"}, {A_LGRIP, "left/input/squeeze/value"},
+    {A_RGRIP, "right/input/squeeze/value"}, {A_HAND, "left/input/grip/pose"}, {A_HAND, "right/input/grip/pose"},
+    {-1, NULL},
+};
 static const struct {
     const char *profile;
     const bind *b;
 } profiles[] = {
+    {"/interaction_profiles/bytedance/pico4_controller", pico},
+    {"/interaction_profiles/bytedance/pico_neo3_controller", pico},
+    {"/interaction_profiles/htc/vive_cosmos_controller", cosmos},
+    {"/interaction_profiles/valve/frame_controller_valve", frame},
     {"/interaction_profiles/oculus/touch_controller", touch},
     {"/interaction_profiles/valve/index_controller", index_},
     {"/interaction_profiles/microsoft/motion_controller", wmr},
@@ -135,14 +167,20 @@ static struct {
     uint32_t attacks, slashes, stabs;
     float last_power;
     // BetterVR's scheme and gestures (vr_gestures.h)
-    bool bettervr;         // TOTK_VR_CONTROLS: bettervr (the default) or classic (vr_input_map.h)
+    bool bettervr;         // TOTK_VR_CONTROLS: quest (the default) or bettervr (gestures), or classic (vr_input_map.h)
+    bool quest;            // ... the Quest layout (vr_gestures.h)
+    bool angvel_fix;       // the hands' angular velocity turned back (BetterVR's fix for the Oculus runtime)
+    float lin_peak;        // the hand's fastest speed (m/s) since its motion locked as a slash or a stab
+    double quiet_until;    // no attack from a swing before then (something just taken out of or put in a body slot)
+    uint32_t swings_ignored;  // motions read as attacks with too slow a hand (a wrist flick)
+    int tracking[2];       // each hand's grip pose last logged: -1 not yet, 0 none, 1 valid, 2 tracked
     bool left_handed;      // TOTK_VR_LEFT_HANDED: the hands' roles swapped (sticks stay)
     bool drawing;          // the main hand's trigger held (the bow drawn: vr_skel.c vr_bow_arc)
     bool grip_now[2];      // each hand's grip (the hands' roles), this frame
     float turn_speed;      // TOTK_VR_TURN_SPEED: the right stick's turning, scaled
     vr_gesture_state gest;
     uint32_t gestures;     // gestures that fired (for `vr`)
-} in = {.lock = PTHREAD_MUTEX_INITIALIZER, .turn_speed = 1};
+} in = {.lock = PTHREAD_MUTEX_INITIALIZER, .turn_speed = 1, .tracking = {-1, -1}};
 
 // how much the sticks move or turn the view (0..1), for the comfort vignette (vr.c overlays): the walk stick's push
 // and the turn stick's, as the game gets them (any controller), a snap turn for 0.3 s; roomscale walking (the
@@ -211,9 +249,11 @@ void vr_input_setup(XrSession session) {
     in.ready = true;
     if (in.pad.snap) rt_log("vr: snap turning: %.0f degrees a step", in.snap_deg);
     // BetterVR's control scheme and body gestures (vr_gestures.h), or the earlier one (vr_controls = classic)
-    rt_log("vr: controls: %s%s", in.bettervr ? "BetterVR's (gestures: weapon over the right shoulder, bow over the "
-                                               "left, ability at the left hip, whistle at the mouth)"
-                                             : "classic (vr_controls = classic)",
+    rt_log("vr: controls: %s%s%s", in.quest ? "the Quest layout (A accept, B cancel, the triggers the hands' weapons; "
+                                              "vr_controls = bettervr: BetterVR's) with " : "",
+        in.bettervr ? "BetterVR's gestures (weapon over the right shoulder, bow over the left, ability at the left hip, "
+                      "whistle at the mouth)"
+                    : "classic (vr_controls = classic)",
         in.left_handed ? ", left-handed" : "");
     rt_log("vr: controllers: %d actions, bindings for %d kinds of controller (vr_controllers = 0: off)",
         A_COUNT, suggested);
@@ -232,6 +272,10 @@ static void apply_options(void) {
     in.turn_speed = o->turn_pct / 100.0f;
     in.left_handed = o->left_handed;
     in.bettervr = o->bettervr;
+    in.quest = o->bettervr && o->quest;
+    in.pad.dead = o->deadzone_pct / 100.0f;
+    extern bool vr_runtime_is_oculus(void);   // (vr.c)
+    in.angvel_fix = o->angvel_fix == 1 || (o->angvel_fix == 0 && vr_runtime_is_oculus());
 }
 
 static bool get_bool(int i) {
@@ -304,6 +348,24 @@ static struct {
 } walk = {.mode = -1};
 
 static vr_pose pose_of(XrPosef p);
+// the walking hand's heading (vr_quat_heading's sense). Pointing nearly straight up or down its forward has no heading:
+// the last one is kept; raised overhead and tipped back past vertical, the way it faces is its forward turned round
+// (BetterVR 1.0.1, "keep walking where the hand points when it's raised overhead")
+static float controller_walk_heading(vr_quat q) {
+    static float last;
+    static bool tipped;
+    vr_vec3 f = vr_quat_rotate(q, vr_v3(0, 0, -1)), up = vr_quat_rotate(q, vr_v3(0, 1, 0));
+    vr_vec3 flat = vr_v3(f.x, 0, f.z);
+    if (vr_v3_len(flat) < 0.2f) return last;
+    vr_vec3 upright = vr_v3_normalize(vr_v3_sub(vr_v3(0, 1, 0), vr_v3_scale(f, f.y)));
+    float align = vr_v3_dot(up, upright);
+    if (fabsf(f.y) < 0.5f || align > 0.3f) tipped = false;
+    else if (align < -0.3f) tipped = true;
+    vr_vec3 h = tipped ? vr_v3_scale(flat, -1) : flat;
+    last = atan2f(-h.x, -h.z);
+    return last;
+}
+
 static void walk_turn(void) {
     int mode = vr_options()->walk_controller;   // (live: the menu's VR tab)
     if (mode != walk.mode && mode) rt_log("vr: walking: the left stick walks the way the left controller points");
@@ -316,7 +378,8 @@ static void walk_turn(void) {
         XR_FAILED(xrLocateSpace(in.hand[src], vr_xr_local(), t, &hand)) ||
         !(hand.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT))
         return;
-    walk.turn = remainderf(vr_quat_heading(pose_of(hand.pose).q) - vr_quat_heading(pose_of(head.pose).q), 2 * 3.14159265f);
+    walk.turn = remainderf(controller_walk_heading(pose_of(hand.pose).q) - vr_quat_heading(pose_of(head.pose).q),
+                           2 * 3.14159265f);
 }
 
 static vr_pose pose_of(XrPosef p) {
@@ -324,6 +387,9 @@ static vr_pose pose_of(XrPosef p) {
                  {p.position.x, p.position.y, p.position.z}};
     return r;
 }
+
+#define VR_SLASH_MIN_SPEED 2.0f   // m/s: the hand's peak speed for a slash to attack (BOTW VR, 2026-11-20)
+#define VR_STAB_MIN_SPEED 1.5f    // m/s: ... for a stab
 
 // the hands, once per display time: the right one's slashes and stabs, the left one raised (in.out gets Y / ZL)
 static void motion(double now) {
@@ -343,14 +409,34 @@ static void motion(double now) {
             uint32_t before = in.melee.attacks;
             vr_vec3 lin = vr_v3(vel.linearVelocity.x, vel.linearVelocity.y, vel.linearVelocity.z);
             vr_vec3 ang = vr_v3(vel.angularVelocity.x, vel.angularVelocity.y, vel.angularVelocity.z);
+            // BetterVR's "Fix controller rotation" (openxr.cpp): the Oculus runtime gives the hands' angular velocity
+            // in the controller's own frame, tilted 45 degrees about its x axis; turned back into the tracking space
+            if (in.angvel_fix) {
+                const vr_quat tilt = {-0.38268343f, 0, 0, 0.92387953f};
+                ang = vr_quat_rotate(pose_of(right.pose).q, vr_quat_rotate(tilt, ang));
+            }
             vr_melee_update(&in.melee, pose_of(right.pose), lin, ang, pose_of(head.pose).p, t / 1e9, tracked);
-            if (in.melee.attacks != before) {  // (an attack begins: the game's attack, held long enough to be seen)
-                if (in.swing_attack) in.attack_until = now + 0.12;
+            if (in.melee.locked == VR_MELEE_NONE) in.lin_peak = 0;
+            else if (in.melee.hand_speed > in.lin_peak) in.lin_peak = in.melee.hand_speed;
+            // the analysis alone (BetterVR's, for its weapon collisions) takes a flick of the wrist or a small quick move
+            // for a slash: the game's attack also asks the hand itself to move fast (a real slash's hand: 2-4 m/s; a
+            // wrist flick's: under 1) and no bow or ability in hand (the gestures' own tracking: TotK's hands are not
+            // read from Link yet)
+            bool real = in.lin_peak >= (in.melee.locked == VR_MELEE_STAB ? VR_STAB_MIN_SPEED : VR_SLASH_MIN_SPEED) &&
+                        in.gest.held != VR_HELD_BOW && in.gest.held != VR_HELD_RUNE;
+            if (in.melee.attacks != before && now < in.quiet_until) {
+                // (drawing from a body slot brings the hand forward fast: not an attack)
+            } else if (in.melee.attacks != before) {  // (a motion read as an attack: counted - the analysis's own)
                 in.attacks++;
                 if (in.melee.locked == VR_MELEE_STAB) in.stabs++;
                 else in.slashes++;
                 in.last_power = in.melee.power;
-                pulse(in.left_handed ? 0 : 1, 0.5f + 0.5f * (in.melee.power > 1 ? 1 : in.melee.power), 0.06);
+                if (!real) {
+                    in.swings_ignored++;
+                } else {   // (the game's attack, held long enough to be seen)
+                    if (in.swing_attack) in.attack_until = now + 0.12;
+                    pulse(in.left_handed ? 0 : 1, 0.5f + 0.5f * (in.melee.power > 1 ? 1 : in.melee.power), 0.06);
+                }
             }
         }
         XrSpaceLocation left = {XR_TYPE_SPACE_LOCATION};
@@ -374,6 +460,8 @@ static uint64_t gestures(const vr_pad_in *p, double now) {
     g.trigger[0] = p->ltrigger >= VR_PAD_PRESS, g.trigger[1] = p->rtrigger >= VR_PAD_PRESS;
     g.a = p->a, g.b = p->b, g.x = p->x, g.y = p->y, g.lclick = p->lclick, g.rclick = p->rclick;
     g.drop_enabled = false;   // (TotK's quick menu has no drop: docs/vr-parity.md)
+    g.seated = !vr_options()->standing;
+    g.quest = in.quest, g.ry = p->ry;
     XrTime t = vr_next_display_time();
     XrSpace local = vr_xr_local(), view = vr_xr_view();
     XrSpaceLocation head = {XR_TYPE_SPACE_LOCATION};
@@ -387,8 +475,19 @@ static uint64_t gestures(const vr_pad_in *p, double now) {
             int src = in.left_handed ? 1 - h : h;   // (left-handed: the left hand plays the right one's part)
             XrSpaceVelocity vel = {XR_TYPE_SPACE_VELOCITY};
             XrSpaceLocation hl = {XR_TYPE_SPACE_LOCATION, &vel};
-            if (in.hand[src] && XR_SUCCEEDED(xrLocateSpace(in.hand[src], local, t, &hl)) &&
-                (hl.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT)) {
+            bool located = in.hand[src] && XR_SUCCEEDED(xrLocateSpace(in.hand[src], local, t, &hl));
+            {   // (each controller's grip: none / valid / tracked, logged when it changes - a headset run's first
+                // question when a hand does nothing: VDXR's controllers asleep give valid poses that are not tracked)
+                const XrSpaceLocationFlags tr = XR_SPACE_LOCATION_POSITION_TRACKED_BIT | XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT;
+                int st = !located || !(hl.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) ? 0
+                       : (hl.locationFlags & tr) == tr ? 2 : 1;
+                if (st != in.tracking[src]) {
+                    static const char *names[] = {"no pose", "a pose, not tracked", "tracked"};
+                    rt_log("vr: %s controller: %s", src ? "right" : "left", names[st]);
+                    in.tracking[src] = st;
+                }
+            }
+            if (located && (hl.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT)) {
                 g.hand[h] = vr_g3v(hl.pose.position.x, hl.pose.position.y, hl.pose.position.z);
                 if (vel.velocityFlags & XR_SPACE_VELOCITY_LINEAR_VALID_BIT)
                     g.hand_speed[h] = sqrtf(vel.linearVelocity.x * vel.linearVelocity.x +
@@ -417,6 +516,7 @@ static uint64_t gestures(const vr_pad_in *p, double now) {
         if (in.gest.haptic[h]) {
             pulse(in.left_handed ? 1 - h : h, in.gest.haptic[h] == 2 ? 0.8f : 0.3f, in.gest.haptic[h] == 2 ? 0.08 : 0.03);
             if (in.gest.haptic[h] == 2) in.gestures++;
+            if (in.gest.haptic[h] == 2) in.quiet_until = now + 0.7;   // (something taken out of or put in a body slot)
         }
     if (in.gest.held != before && getenv("TOTK_VR_TRACE_GESTURES"))
         rt_log("vr: gesture: in hand %d -> %d", before, in.gest.held);

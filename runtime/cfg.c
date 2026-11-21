@@ -64,7 +64,7 @@ static const char *const known[] = {
     "VR", "VR_ASYMMETRIC", "VR_CONTROLLERS", "VR_CONTROLS", "VR_HEAD", "VR_HEIGHT_OFFSET", "VR_LEFT_HANDED", "VR_MOTION",
     "VR_ROOMSCALE", "VR_RUMBLE", "VR_RUMBLE_STRENGTH", "VR_SCREEN_DISTANCE", "VR_SCREEN_WIDTH", "VR_SHIELD", "VR_SNAP_DEGREES",
     "VR_STEREO", "VR_SWING", "VR_SWING_ATTACK", "VR_THIRD_DISTANCE", "VR_TURN", "VR_TURN_SPEED", "VR_VIEW", "VR_WALK",
-    "VR_VIGNETTE", "VR_SHOW_CONTROLLERS", "VR_PLAY_POSITION", "VR_MOVIES", "VR_SHADOWS_ONCE", "VR_EVENTS", "VR_CUTSCENE_BARS",
+    "VR_VIGNETTE", "VR_SHOW_CONTROLLERS", "VR_PLAY_POSITION", "VR_MOVIES", "VR_SHADOWS_ONCE", "VR_EVENTS", "VR_CUTSCENE_BARS", "VR_STICK_DEADZONE", "VR_ANGVEL_FIX",
     "VS_OUTS",
     "WALK_KEY", "WALK_SCALE", "WB_EXACT", "WB_FENCE_LIMIT", "WB_MERGE", "WINDOW_SIZE", "XLATE", "XLATE_ID", "XLATE_KEEP", "XLATE_PROCS",
     "ZSTD_CHECK", "ZSTD_NATIVE",
@@ -94,7 +94,7 @@ static const struct { const char *key, *section; } sections[] = {
     {"VR_SWING_ATTACK", "vr"}, {"VR_THIRD_DISTANCE", "vr"}, {"VR_TURN", "vr"}, {"VR_TURN_SPEED", "vr"},
     {"VR_VIEW", "vr"}, {"VR_WALK", "vr"}, {"VR_VIGNETTE", "vr"}, {"VR_SHOW_CONTROLLERS", "vr"},
     {"VR_PLAY_POSITION", "vr"}, {"VR_MOVIES", "vr"}, {"VR_SHADOWS_ONCE", "vr"}, {"VR_EVENTS", "vr"},
-    {"VR_CUTSCENE_BARS", "vr"},
+    {"VR_CUTSCENE_BARS", "vr"}, {"VR_STICK_DEADZONE", "vr"}, {"VR_ANGVEL_FIX", "vr"},
     {"MODS_DIR", "mods"}, {"MODS_ORDER", "mods"}, {"MODS_DISABLED", "mods"}, {"MODS_REBUILD", "mods"},
     {"TEX_HEAP_EXTRA_MB", "mods"},
     {"MENU_LANG", "language"}, {"LANG", "language"}, {"OPERATION_MODE", "language"},
@@ -212,7 +212,7 @@ static const CfgMeta metas[] = {
     {"VR_SCREEN_DISTANCE", "2.5", "0.5..10", RESTART},
     {"VR_VIEW", "first", "first|third", LIVE}, {"VR_HEIGHT_OFFSET", "0", "-50..50", LIVE},
     {"VR_THIRD_DISTANCE", "100", "25..300", LIVE}, {"VR_ASYMMETRIC", "1", "0|1", LIVE},
-    {"VR_CONTROLS", "bettervr", "bettervr|classic", LIVE}, {"VR_LEFT_HANDED", "0", "0|1", LIVE},
+    {"VR_CONTROLS", "quest", "quest|bettervr|classic", LIVE}, {"VR_LEFT_HANDED", "0", "0|1", LIVE},
     {"VR_TURN", "smooth", "smooth|snap|head", LIVE}, {"VR_SNAP_DEGREES", "45", "5..180", LIVE},
     {"VR_TURN_SPEED", "100", "20..300", LIVE}, {"VR_WALK", "head", "head|controller", LIVE},
     {"VR_ROOMSCALE", "1", "0|1", LIVE}, {"VR_RUMBLE", "1", "0|1", LIVE}, {"VR_RUMBLE_STRENGTH", "100", "0..400", LIVE},
@@ -220,7 +220,8 @@ static const CfgMeta metas[] = {
     {"VR_SHIELD", "1", "0|1", LIVE}, {"VR_VIGNETTE", "off", "off|low|medium|high", LIVE},
     {"VR_SHOW_CONTROLLERS", "1", "0|1", LIVE}, {"VR_PLAY_POSITION", "seated", "seated|standing", LIVE},
     {"VR_MOVIES", "screen", "screen|world", LIVE},
-    {"VR_EVENTS", "auto", "auto|first|third|screen", LIVE}, {"VR_CUTSCENE_BARS", "0", "0|1", LIVE}, {"VR_SHADOWS_ONCE", "1", "0|1", RESTART},
+    {"VR_EVENTS", "auto", "auto|first|third|screen", LIVE}, {"VR_CUTSCENE_BARS", "0", "0|1", LIVE}, {"VR_SHADOWS_ONCE", "0", "0|1", RESTART},
+    {"VR_STICK_DEADZONE", "12", "5..40", LIVE}, {"VR_ANGVEL_FIX", "auto", "auto|on|off", LIVE},
 };
 
 static int is_known(const char *key) {

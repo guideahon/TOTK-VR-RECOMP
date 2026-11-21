@@ -39,7 +39,9 @@ int main(int argc, char **argv) {
     CHECK_EQ_INT(o->height_cm, 0);
     CHECK_EQ_INT(o->third_pct, 100);
     CHECK(o->asymmetric);
-    CHECK(o->bettervr);
+    CHECK(o->bettervr && o->quest);   // (the Quest layout, BOTW VR's default since 2026-11-20)
+    CHECK_EQ_INT(o->deadzone_pct, 12);
+    CHECK_EQ_INT(o->angvel_fix, 0);
     CHECK(!o->left_handed);
     CHECK_EQ_INT(o->turn, VR_TURN_SMOOTH);
     CHECK_EQ_INT(o->snap_deg, 45);
@@ -62,6 +64,8 @@ int main(int argc, char **argv) {
     set("TOTK_VR_SWING", "easy");
     set("TOTK_VR_VIGNETTE", "medium");
     set("TOTK_VR_PLAY_POSITION", "standing");
+    set("TOTK_VR_STICK_DEADZONE", "90");
+    set("TOTK_VR_ANGVEL_FIX", "off");
     o = vr_options();
     CHECK_EQ_INT(o->vignette, 2);
     CHECK(o->standing);
@@ -69,10 +73,14 @@ int main(int argc, char **argv) {
     CHECK_EQ_INT(o->turn, VR_TURN_HEAD);
     CHECK_EQ_INT(o->snap_deg, 180);
     CHECK_EQ_INT(o->height_cm, -20);
-    CHECK(!o->bettervr);
+    CHECK(!o->bettervr && !o->quest);
+    CHECK_EQ_INT(o->deadzone_pct, 40);
+    CHECK_EQ_INT(o->angvel_fix, 2);
     CHECK(o->swing_easy);
     set("TOTK_VR_TURN", "snap");
     CHECK_EQ_INT(vr_options()->turn, VR_TURN_SNAP);
+    set("TOTK_VR_CONTROLS", "bettervr");
+    CHECK(vr_options()->bettervr && !vr_options()->quest);
 
     VR_TEST("the stub's defaults are runtime/cfg.c's");
     FILE *f = fopen(argc > 1 ? argv[1] : "runtime/cfg.c", "rb");
@@ -86,7 +94,7 @@ int main(int argc, char **argv) {
             "VR_LEFT_HANDED", "VR_TURN", "VR_SNAP_DEGREES", "VR_TURN_SPEED", "VR_WALK", "VR_ROOMSCALE", "VR_RUMBLE",
             "VR_RUMBLE_STRENGTH", "VR_MOTION", "VR_SWING", "VR_SWING_ATTACK", "VR_SHIELD", "VR_VIGNETTE",
             "VR_SHOW_CONTROLLERS", "VR_PLAY_POSITION", "VR_MOVIES", "VR_SHADOWS_ONCE", "VR_EVENTS",
-            "VR_CUTSCENE_BARS"};
+            "VR_CUTSCENE_BARS", "VR_STICK_DEADZONE", "VR_ANGVEL_FIX"};
         extern const char *cfg_value(const char *);
         for (size_t i = 0; i < sizeof keys / sizeof *keys; i++) {
             char want[64], name[64];

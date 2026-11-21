@@ -16,7 +16,9 @@
 #include "host.h"
 #include "vk.h"
 #include "vr.h"
+#include "platform/platform.h"
 #include "vr_internal.h"
+#include "vr_math.h"
 #include "vr_options.h"
 #include <math.h>
 
@@ -71,6 +73,9 @@ static struct {
     uint64_t repeats;          // frames in play without the head that showed the last projection again
 } g;
 
+static bool oculus_runtime;   // (Meta's own PC runtime: its hands' angular velocity needs BetterVR's fix)
+bool vr_runtime_is_oculus(void) { return oculus_runtime; }
+
 bool vr_enabled(void) { return enabled; }
 const char *vr_status_text(void) { return status; }
 XrInstance vr_xr_instance(void) { return enabled ? g_inst : XR_NULL_HANDLE; }
@@ -80,8 +85,19 @@ XrSpace vr_xr_view(void) { return g.view; }
 bool vr_session_running(void) { return g.running && g.session != XR_NULL_HANDLE; }
 XrTime vr_next_display_time(void) { return g.last_display ? g.last_display + 2 * g.period : 0; }
 
+// A runtime failure, a lost session or a lost instance (BOTW VR, 2026-11-19: Virtual Desktop answered xrBeginFrame with
+// XR_ERROR_RUNTIME_FAILURE after a 2 s stall, the frames went on into its swapchains and the Vulkan device was lost):
+// the session ends at once and the game goes on flat (present, vr_xr_fatal).
+static volatile int g_xr_fatal;
+const char *vr_xr_fatal(void) {
+    return g_xr_fatal == 1 ? "the runtime failed" : g_xr_fatal == 2 ? "the session was lost" :
+           g_xr_fatal == 3 ? "the runtime went away" : NULL;
+}
+
 bool vr_xr_ok(XrResult r, const char *what) {
     if (XR_SUCCEEDED(r)) return true;
+    if (!g_xr_fatal)
+        g_xr_fatal = r == XR_ERROR_RUNTIME_FAILURE ? 1 : r == XR_ERROR_SESSION_LOST ? 2 : r == XR_ERROR_INSTANCE_LOST ? 3 : 0;
     char name[XR_MAX_RESULT_STRING_SIZE] = "";
     if (g_inst == XR_NULL_HANDLE || XR_FAILED(xrResultToString(g_inst, r, name))) snprintf(name, sizeof name, "%d", (int)r);
     rt_log("vr: %s: %s", what, name);
@@ -94,6 +110,26 @@ void vr_disable(const char *why) {
     snprintf(status, sizeof status, "stopped: %s", why);
     rt_log("vr: VR stopped (%s): the game goes on flat", why);
 }
+
+// The OpenXR calls that may use the session's queue themselves, under vk_queue_lock (OpenXR wants the queue externally
+// synchronized, and the game's recorder submits on it at any time). From BOTW VR (2026-11-19): Monado / WiVRn submit
+// layout barriers in acquire / release / xrEndFrame - a Quest 3 on WiVRn lost the device after ~250 frames - and Virtual
+// Desktop's runtime submits its own GPU timers inside xrBeginFrame: unlocked, the Vulkan device was lost ("address write
+// invalid 0") within seconds of the session starting. fake_xr never uses the queue. TOTK_VR_QUEUE_LOCK=0: without it.
+static bool vr_qlock(void) {
+    static int on = -1;
+    if (on < 0) {
+        const char *e = getenv("TOTK_VR_QUEUE_LOCK");
+        on = !(e && *e == '0');
+        if (!on) rt_log("vr: OpenXR calls without the queue's lock (TOTK_VR_QUEUE_LOCK=0)");
+    }
+    return on;
+}
+static XrResult xrq_end(XrResult r, bool q) {
+    if (q) vk_queue_unlock();
+    return r;
+}
+#define XRQ(call) ({ bool q_ = vr_qlock(); if (q_) vk_queue_lock(); xrq_end((call), q_); })
 
 // a setting (cfg.h: the variable, else totk.ini, else the table's default) within lo..hi, else def
 static float setting_float(const char *name, float def, float lo, float hi) {
@@ -143,6 +179,7 @@ void vr_init(void) {
     }
     XrInstanceProperties ip = {XR_TYPE_INSTANCE_PROPERTIES};
     xrGetInstanceProperties(g_inst, &ip);
+    oculus_runtime = !strcmp(ip.runtimeName, "Oculus");
     if (!vulkan) {
         snprintf(why, sizeof why, "runtime %s has no XR_KHR_vulkan_enable2", ip.runtimeName);
         stay_flat(why);
@@ -231,7 +268,7 @@ void vr_vk_session_start(void) {
     XrGraphicsBindingVulkanKHR bind = {XR_TYPE_GRAPHICS_BINDING_VULKAN_KHR, NULL, c->instance, c->phys, c->device,
                                        c->gfx_family, 0};
     XrSessionCreateInfo sci = {XR_TYPE_SESSION_CREATE_INFO, &bind, 0, g_system};
-    if (!vr_xr_ok(xrCreateSession(g_inst, &sci, &g.session), "xrCreateSession")) {
+    if (!vr_xr_ok(XRQ(xrCreateSession(g_inst, &sci, &g.session)), "xrCreateSession")) {
         vr_disable("no session");
         return;
     }
@@ -269,7 +306,7 @@ static void drop_swapchains(void) {
     vkDeviceWaitIdle(c->device);  // (only on a resize or the end: their images may still be read)
     vk_queue_unlock();
     for (int k = 0; k < SC_COUNT; k++) {
-        if (g.sc[k].h) xrDestroySwapchain(g.sc[k].h);
+        if (g.sc[k].h) XRQ(xrDestroySwapchain(g.sc[k].h));
         g.sc[k] = (swc){0};
     }
     ov_dropped();
@@ -309,9 +346,9 @@ static void poll_events(void) {
             rt_log("vr: session state %d", (int)st);
             if (st == XR_SESSION_STATE_READY && !g.running) {
                 XrSessionBeginInfo bi = {XR_TYPE_SESSION_BEGIN_INFO, NULL, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO};
-                if (vr_xr_ok(xrBeginSession(g.session, &bi), "xrBeginSession")) g.running = true;
+                if (vr_xr_ok(XRQ(xrBeginSession(g.session, &bi)), "xrBeginSession")) g.running = true;
             } else if (st == XR_SESSION_STATE_STOPPING && g.running) {
-                vr_xr_ok(xrEndSession(g.session), "xrEndSession");
+                vr_xr_ok(XRQ(xrEndSession(g.session)), "xrEndSession");
                 g.running = false;
             } else if (st == XR_SESSION_STATE_EXITING) {
                 end_session("the runtime ended the session");
@@ -358,12 +395,12 @@ static bool make_swapchain(int k, VkExtent2D ext, VkFormat want) {
     XrSwapchainCreateInfo ci = {XR_TYPE_SWAPCHAIN_CREATE_INFO, NULL, 0,
                                 XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT | XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT, want, 1,
                                 ext.width, ext.height, 1, 1, 1};
-    if (!vr_xr_ok(xrCreateSwapchain(g.session, &ci, &sc->h), "xrCreateSwapchain")) return false;
+    if (!vr_xr_ok(XRQ(xrCreateSwapchain(g.session, &ci, &sc->h)), "xrCreateSwapchain")) return false;
     XrSwapchainImageVulkanKHR imgs[MAX_IMAGES];
     for (int i = 0; i < MAX_IMAGES; i++) imgs[i] = (XrSwapchainImageVulkanKHR){XR_TYPE_SWAPCHAIN_IMAGE_VULKAN_KHR};
-    if (!vr_xr_ok(xrEnumerateSwapchainImages(sc->h, MAX_IMAGES, &sc->n, (XrSwapchainImageBaseHeader *)imgs),
+    if (!vr_xr_ok(XRQ(xrEnumerateSwapchainImages(sc->h, MAX_IMAGES, &sc->n, (XrSwapchainImageBaseHeader *)imgs)),
                   "xrEnumerateSwapchainImages")) {
-        xrDestroySwapchain(sc->h);
+        XRQ(xrDestroySwapchain(sc->h));
         sc->h = XR_NULL_HANDLE;
         return false;
     }
@@ -400,8 +437,8 @@ static bool copy_to(int k, VkImage src, VkImageLayout layout, VkFormat fmt, int 
     uint32_t idx = 0;
     XrSwapchainImageWaitInfo wi = {XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO, NULL, XR_INFINITE_DURATION};
     if (!(sc->h || make_swapchain(k, ext, want)) ||
-        !vr_xr_ok(xrAcquireSwapchainImage(sc->h, NULL, &idx), "xrAcquireSwapchainImage") ||
-        !vr_xr_ok(xrWaitSwapchainImage(sc->h, &wi), "xrWaitSwapchainImage"))
+        !vr_xr_ok(XRQ(xrAcquireSwapchainImage(sc->h, NULL, &idx)), "xrAcquireSwapchainImage") ||
+        !vr_xr_ok(XRQ(xrWaitSwapchainImage(sc->h, &wi)), "xrWaitSwapchainImage"))
         return false;
     unsigned s = g.slot++ % SLOTS;
     vkWaitForFences(c->device, 1, &g.fence[s], VK_TRUE, UINT64_MAX);
@@ -542,8 +579,8 @@ static bool ov_upload(int k, uint32_t size, VkDeviceSize off) {
     VkCtx *c = vk_ctx();
     uint32_t idx = 0;
     XrSwapchainImageWaitInfo wi = {XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO, NULL, XR_INFINITE_DURATION};
-    if (!vr_xr_ok(xrAcquireSwapchainImage(sc->h, NULL, &idx), "xrAcquireSwapchainImage") ||
-        !vr_xr_ok(xrWaitSwapchainImage(sc->h, &wi), "xrWaitSwapchainImage"))
+    if (!vr_xr_ok(XRQ(xrAcquireSwapchainImage(sc->h, NULL, &idx)), "xrAcquireSwapchainImage") ||
+        !vr_xr_ok(XRQ(xrWaitSwapchainImage(sc->h, &wi)), "xrWaitSwapchainImage"))
         return false;
     unsigned s = g.slot++ % SLOTS;
     vkWaitForFences(c->device, 1, &g.fence[s], VK_TRUE, UINT64_MAX);
@@ -590,7 +627,14 @@ static uint32_t overlays(bool world, const XrCompositionLayerBaseHeader **layers
     static const float strength[] = {0, 0.55f, 0.8f, 1.0f};
     float want = world && o->vignette > 0 && o->vignette <= 3 ? strength[o->vignette] * vr_stick_motion() : 0;
     // (in: a time constant of 0.15 s; out: 0.3 s, nearly gone in a second)
-    float dt = g.period > 0 ? (float)g.period / 1e9f : 1 / 90.0f, k = want > ov.level ? dt / 0.15f : dt / 0.3f;
+    // (the time since the last headset frame, not the display's period: frames the game is slow to make come further
+    // apart, and the fade is in seconds - BOTW VR, 2026-11-19)
+    static uint64_t last_ns;
+    uint64_t now_ns = plat_now_ns();
+    float dt = last_ns && now_ns > last_ns ? (float)(now_ns - last_ns) / 1e9f : 1 / 90.0f;
+    if (dt > 0.1f) dt = 0.1f;
+    last_ns = now_ns;
+    float k = want > ov.level ? dt / 0.15f : dt / 0.3f;
     ov.level += (want - ov.level) * (k > 1 ? 1 : k);
     if (ov.level < 0.01f) ov.level = 0;
     int l = (int)(ov.level * VIG_LEVELS + 0.5f);
@@ -676,6 +720,10 @@ static void keep_last(const XrCompositionLayerProjectionView *pv) {
 static void present(VkImage src, VkImageLayout layout, VkFormat fmt, int w, int h, vr_view view, bool world) {
     VkCtx *c = vk_ctx();
     if (!g.session || !c || !src || w <= 0 || h <= 0) return;
+    if (vr_xr_fatal()) {   // (a runtime failure: nothing more goes to its swapchains; the game goes on flat)
+        end_session(vr_xr_fatal());
+        return;
+    }
     poll_events();
     if (!g.running || !g.session) return;
     vr_window_aspect((float)w / (float)h);
@@ -703,8 +751,14 @@ static void present(VkImage src, VkImageLayout layout, VkFormat fmt, int w, int 
         if (!repeat_last(&g.pair_fs)) end_frame(&g.pair_fs, NULL);
     }
     XrFrameState fs = {XR_TYPE_FRAME_STATE};
-    if (!vr_xr_ok(xrWaitFrame(g.session, NULL, &fs), "xrWaitFrame")) return;  // (paces the game to the headset)
-    if (!vr_xr_ok(xrBeginFrame(g.session, NULL), "xrBeginFrame")) return;
+    if (!vr_xr_ok(xrWaitFrame(g.session, NULL, &fs), "xrWaitFrame")) {   // (paces the game to the headset)
+        if (vr_xr_fatal()) end_session(vr_xr_fatal());
+        return;
+    }
+    if (!vr_xr_ok(XRQ(xrBeginFrame(g.session, NULL)), "xrBeginFrame")) {
+        if (vr_xr_fatal()) end_session(vr_xr_fatal());   // (no frame begun: nothing to end)
+        return;
+    }
     g.last_display = fs.predictedDisplayTime;
     g.period = fs.predictedDisplayPeriod;
     g.frames++;
@@ -731,7 +785,28 @@ static void present(VkImage src, VkImageLayout layout, VkFormat fmt, int w, int 
         quad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
         quad.subImage.swapchain = g.sc[SC_SCREEN].h;
         quad.subImage.imageRect = (XrRect2Di){{0, 0}, {w, h}};
-        quad.pose = (XrPosef){{0, 0, 0, 1}, {0, 0, -g.screen_dist}};
+        // where it is: placed in front of the head, level, each time it comes up (a menu, loading, the start screen:
+        // BetterVR 1.0.1 "open every menu screen level in front of you"), and kept there while it stays
+        static XrPosef placed = {{0, 0, 0, 1}, {0, 0, 0}};
+        static bool have_placed;
+        static uint64_t last_frame;
+        if (!have_placed || g.frames != last_frame + 1) {
+            XrSpaceLocation hl = {XR_TYPE_SPACE_LOCATION};
+            if (g.view && XR_SUCCEEDED(xrLocateSpace(g.view, g.local, fs.predictedDisplayTime, &hl)) &&
+                (hl.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) &&
+                (hl.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT)) {
+                vr_quat hq = {hl.pose.orientation.x, hl.pose.orientation.y, hl.pose.orientation.z, hl.pose.orientation.w};
+                vr_quat yq = vr_quat_yaw(vr_quat_heading(hq));
+                vr_vec3 ahead = vr_quat_rotate(yq, vr_v3(0, 0, -g.screen_dist));
+                placed = (XrPosef){{yq.x, yq.y, yq.z, yq.w},
+                                   {hl.pose.position.x + ahead.x, hl.pose.position.y, hl.pose.position.z + ahead.z}};
+                have_placed = true;
+            } else if (!have_placed) {
+                placed = (XrPosef){{0, 0, 0, 1}, {0, 0, -g.screen_dist}};
+            }
+        }
+        last_frame = g.frames;
+        quad.pose = placed;
         quad.size = (XrExtent2Df){g.screen_w, g.screen_w * (float)h / (float)w};
     }
     end_frame(&fs, ok ? (const XrCompositionLayerBaseHeader *)&quad : NULL);

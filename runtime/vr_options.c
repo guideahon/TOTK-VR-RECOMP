@@ -18,6 +18,10 @@ const vr_options_t *vr_options(void) {
     n.third_pct = clampi(cfg_int("TOTK_VR_THIRD_DISTANCE"), 25, 300);
     n.asymmetric = cfg_bool("TOTK_VR_ASYMMETRIC");
     n.bettervr = strcmp(cfg_value("TOTK_VR_CONTROLS"), "classic") != 0;
+    n.quest = !strcmp(cfg_value("TOTK_VR_CONTROLS"), "quest");
+    n.deadzone_pct = clampi(cfg_int("TOTK_VR_STICK_DEADZONE"), 5, 40);
+    const char *af = cfg_value("TOTK_VR_ANGVEL_FIX");
+    n.angvel_fix = !strcmp(af, "on") ? 1 : !strcmp(af, "off") ? 2 : 0;
     n.left_handed = cfg_bool("TOTK_VR_LEFT_HANDED");
     const char *t = cfg_value("TOTK_VR_TURN");
     n.turn = !strcmp(t, "snap") ? VR_TURN_SNAP : !strcmp(t, "head") ? VR_TURN_HEAD : VR_TURN_SMOOTH;

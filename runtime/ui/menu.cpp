@@ -1146,8 +1146,8 @@ static void tab_vr(float scale) {
     opt_slider("TOTK_VR_THIRD_DISTANCE", UI_VR_THIRD_DISTANCE, 25, 300, UI_VR_THIRD_DISTANCE_DESC, 5, "%.0f %%");
     opt_toggle("TOTK_VR_ASYMMETRIC", UI_VR_ASYMMETRIC, UI_VR_ASYMMETRIC_DESC);
     opt_group(UI_VR_GROUP_CONTROLS);
-    static const UiTextId schemes[] = {UI_VR_CONTROLS_BETTERVR, UI_VR_CONTROLS_CLASSIC};
-    opt_choice("TOTK_VR_CONTROLS", UI_VR_CONTROLS, schemes, 2, UI_VR_CONTROLS_DESC);
+    static const UiTextId schemes[] = {UI_VR_CONTROLS_QUEST, UI_VR_CONTROLS_BETTERVR, UI_VR_CONTROLS_CLASSIC};
+    opt_choice("TOTK_VR_CONTROLS", UI_VR_CONTROLS, schemes, 3, UI_VR_CONTROLS_DESC);
     opt_toggle("TOTK_VR_LEFT_HANDED", UI_VR_LEFT_HANDED, UI_VR_LEFT_HANDED_DESC);
     static const UiTextId turns[] = {UI_VR_TURN_SMOOTH, UI_VR_TURN_SNAP, UI_VR_TURN_HEAD};
     opt_choice("TOTK_VR_TURN", UI_VR_TURN, turns, 3, UI_VR_TURN_DESC);
@@ -1158,12 +1158,15 @@ static void tab_vr(float scale) {
     opt_toggle("TOTK_VR_ROOMSCALE", UI_VR_ROOMSCALE, UI_VR_ROOMSCALE_DESC);
     opt_toggle("TOTK_VR_RUMBLE", UI_VR_RUMBLE, UI_VR_RUMBLE_DESC);
     opt_slider("TOTK_VR_RUMBLE_STRENGTH", UI_VR_RUMBLE_STRENGTH, 0, 400, UI_VR_RUMBLE_STRENGTH_DESC, 10, "%.0f %%");
+    opt_slider("TOTK_VR_STICK_DEADZONE", UI_VR_DEADZONE, 5, 40, UI_VR_DEADZONE_DESC, 1, "%.0f %%");
     opt_group(UI_VR_GROUP_COMBAT);
     opt_toggle("TOTK_VR_MOTION", UI_VR_MOTION, UI_VR_MOTION_DESC);
     static const UiTextId swings[] = {UI_VR_SWING_NORMAL, UI_VR_SWING_EASY};
     opt_choice("TOTK_VR_SWING", UI_VR_SWING, swings, 2, UI_VR_SWING_DESC);
     opt_toggle("TOTK_VR_SWING_ATTACK", UI_VR_SWING_ATTACK, UI_VR_SWING_ATTACK_DESC);
     opt_toggle("TOTK_VR_SHIELD", UI_VR_SHIELD, UI_VR_SHIELD_DESC);
+    static const UiTextId angvels[] = {UI_MENU_AUTO, UI_MENU_ON, UI_MENU_OFF};
+    opt_choice("TOTK_VR_ANGVEL_FIX", UI_VR_ANGVEL, angvels, 3, UI_VR_ANGVEL_DESC);
     opt_group(UI_VR_GROUP_COMFORT);
     static const UiTextId vignettes[] = {UI_MENU_OFF, UI_VR_VIGNETTE_LOW, UI_VR_VIGNETTE_MEDIUM, UI_VR_VIGNETTE_HIGH};
     opt_choice("TOTK_VR_VIGNETTE", UI_VR_VIGNETTE, vignettes, 4, UI_VR_VIGNETTE_DESC);

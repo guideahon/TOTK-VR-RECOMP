@@ -456,12 +456,14 @@ static void resolve_rt_as(VkExec *ex, int peek) {
 static void resolve_rt(VkExec *ex) { resolve_rt_as(ex, 0); }
 
 // VR in stereo (runtime/vr_camera.c, from Savage Wind VR's exec.c begin_pass): the right eye's frame reuses the left
-// one's sun shadow cascades. Its draws and depth clears into them are left out: the eyes are 6.4 cm apart and the right
-// frame takes the shortest game step (vr_frame_step), so they would draw what the left frame drew. The cascades are the
+// one's sun shadow cascades. Its draws and depth clears into them are left out: the eyes are 6.4 cm apart. Off by default
+// (TOTK_VR_SHADOWS_ONCE=1 turns it on): in BOTW VR (2026-11-20) the left eye's shadows flickered with it - 2.8% of its
+// pixels jumping frame to frame against 0.4% without - and since the pair's frames take even game steps
+// (vr_frame_step) the right frame is a moment of its own, which the left frame's maps do not show. The cascades are the
 // one DEPTH16 2D array of 4 square layers TotK renders its sun shadows into (vk_texture.c shadow_scale_of); the static
 // shadows' arrays of 2 are drawn only when the view moves far, so a right frame keeps drawing them. The replay must run
 // on the game's render thread (TOTK_REPLAY_ASYNC=0, the default) for the eye to be the frame's.
-// TOTK_VR_SHADOWS_ONCE=0 draws them for both eyes.
+// TOTK_VR_SHADOWS_ONCE=0 (the default) draws them for both eyes.
 #ifdef TOTK_VR
 int vk_exec_vr_shadow_skip(VkExec *ex) {
     static int on = -1;

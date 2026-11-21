@@ -27,6 +27,28 @@ States: **done** (ported, checked against fake_xr), **headset** (ported, needs t
 | Comfort vignette, controller markers, play position seated / standing (BotW 00ad668, 6d80122) | `vr.c` overlays, STAGE space | done (fake_xr in play) |
 | A frame in play without the head shown as the virtual screen for one headset frame | `vr.c` repeat_last | done (1522 -> 2 layer changes a run) |
 
+## Brought over from BOTW VR on 2026-11-21 (its main at 1307fa8)
+
+| What (BOTW VR commit) | TotK | State |
+|---|---|---|
+| Stereo pairs split the game's time evenly (6b77955, 5b0cfbd: an uneven split shook physics) | `vr_pair.h` VR_PAIR_SECOND, `vr_camera.c` vr_frame_step (`TOTK_VR_PAIR_SECOND` to compare) | done (test_vr_pair) |
+| Shadows once a pair off by default (0de01fd: the left eye's shadows flickered) | `vr_shadows_once = 0` | done |
+| The queue's lock around every OpenXR call that may submit (0cf4d33, 96b5a30: Virtual Desktop / WiVRn lost the device) | `vr.c` XRQ (`TOTK_VR_QUEUE_LOCK=0`: without) | done; headset |
+| A runtime failure or a lost session ends VR at once, the game goes on flat (4695348) | `vr.c` vr_xr_fatal | done |
+| The Quest layout, BetterVR 1.0.1's gesture fixes, the new parry, L3 held runs, bow / arrow menus on the grips, whistle with the triggers (cf0e002, 687b238, 01be7f2, c5c5089, fd28c33, 60dd635, b22923c) | `vr_gestures.h`, `vr_controls = quest` (the default) | done (test_vr_gestures); headset |
+| The ability used with A, not R (1972340) | `vr_gestures.h` | done |
+| Stick dead zone, the Oculus runtime's angular velocity fix, Pico / Vive Cosmos / Steam Frame bindings (6609455) | `vr_stick_deadzone`, `vr_angvel_fix`, `vr_input.c` | done; headset |
+| A swing attacks only when the hand really travels (2 m/s slash, 1.5 m/s stab), none right after drawing from a slot (0de01fd, 5525eef) | `vr_input.c` motion | done |
+| The shield raised from chest height (cf0e002) | `vr_melee.h` | done (test_vr_melee) |
+| Walking by the controller with the hand raised overhead (cf0e002) | `vr_input.c` controller_walk_heading | done |
+| The virtual screen placed level in front of the head each time it comes up (cf0e002) | `vr.c` present | done |
+| The vignette's fade in real time (91242e6) | `vr.c` overlays | done |
+| Each controller's tracking state in the log (4b08705) | `vr_input.c` | done |
+
+Not brought over, needing TotK's own hooks first (below): the menu buttons by their letters in menus (251c67a: the
+game's menu state), the shield only with a shield in hand (`vr_shield_allowed`: what Link holds), Magnesis / runes
+aimed by the hand, hand throws, the bow's string, climbing / gliding / riding controls (the player's movement flags).
+
 ## Game hooks (TotK 1.2.1 addresses needed)
 
 | Feature (BotW file) | What it needs in TotK | State |

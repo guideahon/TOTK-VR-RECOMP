@@ -63,7 +63,10 @@ the first three apply at once) or a `TOTK_VR_*` variable, which wins (`vr_view` 
 | `vr_height_offset` | 0 | first person: the eye this many cm higher (-50..50) |
 | `vr_third_distance` | 100 | third person: the camera's distance, % of the game's (25..300) |
 | `vr_asymmetric` | 1 | `0`: each eye a symmetric field instead of its own off-centre one |
-| `vr_controls` | bettervr | `classic`: the table below instead of BetterVR's scheme and gestures |
+| `vr_controls` | quest | `bettervr`: BetterVR's own buttons; `classic`: the table below instead of the gestures |
+| `vr_stick_deadzone` | 12 | the VR controllers' sticks' dead zone, % (5..40) |
+| `vr_angvel_fix` | auto | the hands' angular velocity turned back on Meta's own PC runtime (BetterVR's fix); `on`, `off` |
+| `vr_shadows_once` | 0 | `1`: in stereo the right eye reuses the left's sun shadows (faster; the left eye's flicker) |
 | `vr_left_handed` | 0 | `1`: the hands' roles swapped |
 | `vr_turn` | smooth | `snap` (steps of `vr_snap_degrees`, 45) or `head` (the stick does not turn, first person) |
 | `vr_turn_speed` | 100 | smooth turning, % |
@@ -73,11 +76,15 @@ the first three apply at once) or a `TOTK_VR_*` variable, which wins (`vr_view` 
 | `vr_motion`, `vr_swing`, `vr_swing_attack`, `vr_shield` | 1, normal, 1, 1 | motion combat (`vr_swing = easy`: slower swings count) |
 | `TOTK_FPS_LIMIT` | 60 | set it to 240 in VR: the game runs at twice the headset's rate in stereo |
 
-BetterVR's scheme (runtime/vr_gestures.h, from Savage Wind VR): a grip over the right shoulder takes out the weapon
-(held: its quick menu), over the left shoulder the bow (held: shields or bows), at the left hip the ability (L; held:
-the abilities' wheel), both hands at the mouth whistle; the right trigger uses what is in hand, right A grabs (held:
-run), right B jumps, left Y the ability (held: its wheel), the stick clicks crouch / scope and inventory / map. The
-table above is the classic scheme. What is still to port from BotW, and why: [vr-parity.md](vr-parity.md); what to try
+The body gestures (runtime/vr_gestures.h, from BOTW VR): a grip over the right shoulder takes out the weapon (held: its
+quick menu), over the left shoulder the bow (held: shields or bows), at the left hip the ability (L; held: the
+abilities' wheel), both hands at the mouth whistle (with the grips, or the Quest layout's triggers). The Quest layout
+(the default): A accepts and interacts, B cancels, the right trigger uses what is in hand (attack, draw the bow, use the
+ability with A; held: the weapons' menu), the left one guards and parries (held: the shields'), the right grip away
+from the slots takes the bow out (held: the bows' menu; the left grip with the bow out: the arrows'), the right stick
+pushed up jumps, left Y the ability (held: its wheel), left X the map, the left stick's click crouches (held: run), the
+right one opens the inventory (held: the scope). BetterVR's own buttons (`vr_controls = bettervr`): right A grabs (held:
+run), right B jumps, the rest as above. The table above is the classic scheme. What is still to port from BotW, and why: [vr-parity.md](vr-parity.md); what to try
 on a headset: [vr-checklist.md](vr-checklist.md).
 
 ## Building and playing

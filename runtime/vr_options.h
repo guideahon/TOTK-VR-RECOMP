@@ -11,7 +11,10 @@ typedef struct {
     int height_cm;         // vr_height_offset: first person, the eye this much higher (-50..50)
     int third_pct;         // vr_third_distance: third person, the camera's distance (% of the game's)
     bool asymmetric;       // vr_asymmetric: each eye its own off-centre field
-    bool bettervr;         // vr_controls: BetterVR's scheme and gestures (else classic)
+    bool bettervr;         // vr_controls: BetterVR's scheme and gestures (quest or bettervr; else classic)
+    bool quest;            // vr_controls = quest (the default): the Quest layout (vr_gestures.h)
+    int deadzone_pct;      // vr_stick_deadzone: the sticks' dead zone (5..40 %)
+    int angvel_fix;        // vr_angular_velocity_fix: 0 auto (on with the Oculus runtime, as BetterVR), 1 on, 2 off
     bool left_handed;
     int turn;              // vr_turn: VR_TURN_*
     int snap_deg;          // 5..180
