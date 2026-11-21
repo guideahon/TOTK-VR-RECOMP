@@ -193,15 +193,24 @@ static inline void vr_melee_power(vr_melee *m) {
     }
 }
 
-// The shield: the left hand held up in front of the face, as one raises a shield, holds the game's guard (ZL). In the
-// head's own frame (yaw only: looking down at the hand does not lower it): ahead of the eyes, about at their height,
-// within an arm's reach. raised: the last answer (a little more is asked to raise it than to keep it: no flicker).
+// The shield: the left hand held up in front of the chest or face, as one raises a shield, holds the game's guard (ZL).
+// In the head's own frame (yaw only: looking down at the hand does not lower it): ahead of the eyes, from chest height
+// (BetterVR 1.0.1: 0.4-0.6 m under the eyes) to a little above them, within an arm's reach. raised: the last answer (a
+// little more is asked to raise it than to keep it: no flicker).
 static inline bool vr_shield_raised(bool raised, vr_pose head, vr_vec3 hand) {
     float yaw = vr_quat_heading(head.q);
     vr_vec3 d = vr_quat_rotate(vr_quat_yaw(-yaw), vr_v3_sub(hand, head.p));  // (-Z ahead, +Y up)
     float ahead = -d.z, up = d.y, side = fabsf(d.x);
     float k = raised ? 0.05f : 0;  // (hysteresis, metres)
-    return ahead > 0.20f - k && ahead < 0.70f + k && up > -0.30f - k && up < 0.25f + k && side < 0.40f + k;
+    return ahead > 0.20f - k && ahead < 0.70f + k && up > -0.45f - k && up < 0.25f + k && side < 0.40f + k;
+}
+
+// ... and only with a shield in the left hand and a one-handed weapon in the right (BetterVR 1.0.1): a hand raised with
+// nothing in it, or a bow, or a two-handed weapon, is no guard (ZL alone locks on). left, right: what each hand holds
+// (vr_skel_held: 0 nothing, 1 melee, 2 bow, 3 shield; -1 not known - Link not seen: the gesture alone decides)
+static inline bool vr_shield_allowed(int left, int right) {
+    if (left < 0) return true;
+    return left == 3 && right == 1;
 }
 
 // One sample: the hand (pose, velocity, angular velocity, all in LOCAL space), the head's position, the time (s).

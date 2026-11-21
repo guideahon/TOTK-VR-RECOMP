@@ -174,9 +174,22 @@ static bool stereo_on(void) {
 }
 
 // runtime/frame_rate.c frame_step_present: the step the next frame takes (seconds). In stereo the pair's frames split
-// the pair's time: the right frame takes the shortest step the game allows (min: TotK's physics fail on shorter ones),
-// the left one the rest, so the eyes see moments that far apart and the world keeps its speed. The next frame's eye is
-// fixed here, before its camera is set.
+// the pair's time, evenly by default (vr_pair.h VR_PAIR_SECOND: each frame its normal step, as BetterVR's alternating
+// eyes): an uneven split - the right frame the shortest step the game allows, the left one the rest - made physics
+// shake in Savage Wind VR (a constraint's correction is its error over the step). Neither frame goes under min (TotK's
+// physics fail on shorter ones). TOTK_VR_PAIR_SECOND=<0..0.5>: the right frame's share instead, to compare. The next
+// frame's eye is fixed here, before its camera is set.
+static double pair_second(void) {
+    static double sec = -1;
+    if (sec < 0) {
+        const char *e = getenv("TOTK_VR_PAIR_SECOND");
+        sec = e && *e ? atof(e) : VR_PAIR_SECOND;
+        if (!(sec >= 0 && sec <= 0.5)) sec = VR_PAIR_SECOND;
+        if (e && *e) rt_log("vr: stereo pair: the right frame takes %.0f%% of the pair's time", sec * 100);
+    }
+    return sec;
+}
+
 double vr_frame_step(double step, double min) {
     if (!vr_world_view() || !stereo_on()) {
         pthread_mutex_lock(&lock);
@@ -187,7 +200,11 @@ double vr_frame_step(double step, double min) {
     pthread_mutex_lock(&lock);
     int eye = vr_pair_eye(&c.pair);
     pthread_mutex_unlock(&lock);
-    return eye == 0 ? (2 * step - min > min ? 2 * step - min : min) : min;
+    double right = 2 * step * pair_second();
+    if (right < min) right = min;
+    double left = 2 * step - right;
+    if (left < min) left = min;
+    return eye == 0 ? left : right;
 }
 
 void vr_recenter(void) {

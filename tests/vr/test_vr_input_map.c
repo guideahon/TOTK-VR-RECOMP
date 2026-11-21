@@ -41,6 +41,13 @@ static void test_sticks(void) {
     o = map(&s, (vr_pad_in){.lx = 1, .ly = 1}, 0);  // a corner of a square pad: kept in the circle
     CHECK_NEAR(sqrt((double)o.lx * o.lx + (double)o.ly * o.ly), 32767, 2);
     CHECK_EQ_INT(o.lx, o.ly);
+    // a wider dead zone (Options > VR > Stick dead zone): 0.25 is still nothing at 30%, half way past it is half
+    s.dead = 0.3f;
+    o = map(&s, (vr_pad_in){.lx = 0.25f}, 0);
+    CHECK_EQ_INT(o.lx, 0);
+    o = map(&s, (vr_pad_in){.lx = 0.65f}, 0);
+    CHECK_NEAR(o.lx, 16384, 2);
+    s.dead = 0;
 }
 
 static void test_dpad(void) {
@@ -121,8 +128,23 @@ static void test_snap(void) {
     CHECK(o.rx > 20000);
 }
 
+// in a menu: the game's buttons by their letters, the triggers the pages, no gestures (BetterVR's inMenu)
+static void test_menu_buttons(void) {
+    CHECK_EQ_INT(vr_pad_menu_buttons(&(vr_pad_in){.a = true}, false), BIT(VRB_A));
+    CHECK_EQ_INT(vr_pad_menu_buttons(&(vr_pad_in){.b = true}, false), BIT(VRB_B));   // (back, not the jump's X)
+    CHECK_EQ_INT(vr_pad_menu_buttons(&(vr_pad_in){.x = true}, false), BIT(VRB_X));
+    CHECK_EQ_INT(vr_pad_menu_buttons(&(vr_pad_in){.y = true}, false), BIT(VRB_Y));
+    CHECK_EQ_INT(vr_pad_menu_buttons(&(vr_pad_in){.ltrigger = 1}, false), BIT(VRB_L));
+    CHECK_EQ_INT(vr_pad_menu_buttons(&(vr_pad_in){.rtrigger = 1}, false), BIT(VRB_R));
+    CHECK_EQ_INT(vr_pad_menu_buttons(&(vr_pad_in){.lgrip = 1, .rgrip = 1}, false), 0);
+    CHECK_EQ_INT(vr_pad_menu_buttons(&(vr_pad_in){.rclick = true}, false), BIT(VRB_PLUS));
+    CHECK_EQ_INT(vr_pad_menu_buttons(&(vr_pad_in){.rclick = true}, true), BIT(VRB_MINUS));
+    CHECK_EQ_INT(vr_pad_menu_buttons(&(vr_pad_in){.menu = true}, true), BIT(VRB_PLUS));
+}
+
 int main(void) {
     test_buttons();
+    test_menu_buttons();
     test_sticks();
     test_dpad();
     test_menu();

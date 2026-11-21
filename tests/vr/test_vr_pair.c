@@ -31,8 +31,8 @@ static void test_order(bool clock_first) {
         float step = -1;
         int eye = frame(&p, clock_first, 3, true, &step);
         CHECK_EQ_INT(eye, i % 2);  // left, right, left ...
-        if (eye == 0) CHECK_NEAR(step, 2.0, 1e-6);  // the pair's time
-        else CHECK_NEAR(step, 0.001, 1e-6);         // the same moment again
+        if (eye == 0) CHECK_NEAR(step, 2.0 * (1 - VR_PAIR_SECOND), 1e-6);  // the left frame's share
+        else CHECK_NEAR(step, 2.0 * VR_PAIR_SECOND, 1e-6);                // the right frame's share
     }
     CHECK_EQ_INT(p.pairs, 10);
 }
@@ -48,7 +48,7 @@ static void test_mixed_orders(void) {
         game_time += step;
     }
     CHECK_EQ_INT(p.pairs, 100);
-    CHECK_NEAR(game_time, 200 + 100 * 0.001, 1e-3);  // the world keeps its speed: 2 a pair (+ the right frames' bit)
+    CHECK_NEAR(game_time, 200, 1e-3);  // the world keeps its speed: 2 a pair
 }
 
 static void test_breaks(void) {
@@ -59,7 +59,7 @@ static void test_breaks(void) {
     // a menu opens after the left frame: that frame shows the screen, and play starts again with a left frame
     CHECK_EQ_INT(frame(&p, true, 0, false, &step), -1);
     CHECK_EQ_INT(frame(&p, false, 1, true, &step), 0);
-    CHECK_NEAR(step, 2.0, 1e-6);
+    CHECK_NEAR(step, 2.0 * (1 - VR_PAIR_SECOND), 1e-6);
     CHECK_EQ_INT(frame(&p, true, 1, true, &step), 1);
     CHECK_EQ_INT(p.pairs, 1);
     // a frame in play with no camera of its own (the game holds a still camera without setting it): not an eye

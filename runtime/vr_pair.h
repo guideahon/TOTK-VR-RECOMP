@@ -5,8 +5,8 @@
 //   vr_pair_step    once, from its clock (runtime/frame_rate.c frame_step_present, for the next frame): the frame's game time
 //   vr_pair_camera  for each of its cameras (vr_camera.c, the view copying its camera): the frame's eye
 // and then, once, vr_pair_present (nvnQueuePresentTexture). The frame's eye is chosen by whichever of the first two
-// comes first after the last present, so a frame's camera and its game time always agree: a left frame takes the pair's
-// time (twice its own), a right frame nearly none, and both eyes of a pair see the same moment.
+// comes first after the last present, so a frame's camera and its game time always agree: the pair's time is split
+// between its two frames (vr_pair_step; vr_camera.c vr_frame_step for the game's clock).
 #pragma once
 #include <stdbool.h>
 #include <stdint.h>
@@ -26,8 +26,16 @@ static inline int vr_pair_eye(vr_pair *p) {
     return p->eye;
 }
 
-// the frame's game time (console frames), in play with stereo on
-static inline float vr_pair_step(vr_pair *p, float ratio) { return vr_pair_eye(p) == 0 ? ratio * 2 : 0.001f; }
+// the frame's game time (console frames), in play with stereo on: the pair's time, split between its frames - evenly
+// (VR_PAIR_SECOND 0.5: each frame a normal step, the game as at twice the frame rate, as BetterVR's alternating eyes).
+// Uneven, physics shook (Savage Wind VR, 2026-11-20): with 5% in the right frame chains swung about and resting things
+// moved by themselves - a constraint's correction is its error over the step, and a step 19 times shorter than the next
+// one kicks it - and with the shortest step Link also stopped turning to the stick. Each eye then shows its own moment,
+// half a step apart. TOTK_VR_PAIR_SECOND (vr_camera.c) sets another share, to compare
+#define VR_PAIR_SECOND 0.5f
+static inline float vr_pair_step(vr_pair *p, float ratio) {
+    return vr_pair_eye(p) == 0 ? ratio * 2 * (1 - VR_PAIR_SECOND) : ratio * 2 * VR_PAIR_SECOND;
+}
 
 // the eye a camera of the frame is set for
 static inline int vr_pair_camera(vr_pair *p) { return vr_pair_eye(p); }

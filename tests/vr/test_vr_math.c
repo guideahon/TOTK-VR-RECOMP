@@ -206,6 +206,37 @@ static void test_projection(void) {
     CHECK(ndc.z > 0.999f && ndc.z <= 1.0f);
 }
 
+// a hand's ray on the eye's picture (the runes aimed by hand: the game's pick at that point instead of the centre)
+static void test_ray_picture_uv(void) {
+    VR_TEST("ray uv: straight ahead");
+    vr_pose eye = {vr_quat_identity(), vr_v3(0, 1.6f, 0)};
+    float u, v;
+    CHECK(vr_ray_picture_uv(eye, vr_v3(0, 1.6f, 0), vr_v3(0, 0, -1), 20, -45 * DEG, 45 * DEG, 45 * DEG, -45 * DEG, &u, &v));
+    CHECK_NEAR(u, 0.5f, EPS);
+    CHECK_NEAR(v, 0.5f, EPS);
+    VR_TEST("ray uv: a hand below the eye pointing level lands just under the centre");
+    CHECK(vr_ray_picture_uv(eye, vr_v3(0.2f, 1.2f, -0.3f), vr_v3(0, 0, -1), 20, -45 * DEG, 45 * DEG, 45 * DEG, -45 * DEG, &u, &v));
+    CHECK(u > 0.5f && u < 0.52f);  // 0.2 m right at ~20 m: a little right
+    CHECK(v > 0.5f && v < 0.52f);  // 0.4 m lower: a little down (v grows downwards)
+    VR_TEST("ray uv: pointing 22.5 deg right and up");
+    float t = tanf(22.5f * DEG);
+    CHECK(vr_ray_picture_uv(eye, eye.p, vr_v3(t, 0, -1), 50, -45 * DEG, 45 * DEG, 45 * DEG, -45 * DEG, &u, &v));
+    CHECK_NEAR(u, 0.5f + 0.5f * t, 1e-4);
+    CHECK_NEAR(v, 0.5f, 1e-4);
+    CHECK(vr_ray_picture_uv(eye, eye.p, vr_v3(0, t, -1), 50, -45 * DEG, 45 * DEG, 45 * DEG, -45 * DEG, &u, &v));
+    CHECK_NEAR(v, 0.5f - 0.5f * t, 1e-4);
+    VR_TEST("ray uv: the eye turned 90 deg left, the hand pointing left: the centre");
+    vr_pose turned = {vr_quat_yaw(90 * DEG), eye.p};
+    CHECK(vr_ray_picture_uv(turned, eye.p, vr_v3(-1, 0, 0), 20, -45 * DEG, 45 * DEG, 45 * DEG, -45 * DEG, &u, &v));
+    CHECK_NEAR(u, 0.5f, 1e-4);
+    CHECK_NEAR(v, 0.5f, 1e-4);
+    VR_TEST("ray uv: an off-centre field (a left eye's)");
+    CHECK(vr_ray_picture_uv(eye, eye.p, vr_v3(0, 0, -1), 20, -50 * DEG, 40 * DEG, 45 * DEG, -45 * DEG, &u, &v));
+    CHECK_NEAR(u, tanf(50 * DEG) / (tanf(50 * DEG) + tanf(40 * DEG)), 1e-4);
+    VR_TEST("ray uv: behind the eye");
+    CHECK(!vr_ray_picture_uv(eye, eye.p, vr_v3(0, 0, 1), 20, -45 * DEG, 45 * DEG, 45 * DEG, -45 * DEG, &u, &v));
+}
+
 int main(void) {
     test_quat();
     test_heading();
@@ -215,5 +246,6 @@ int main(void) {
     test_lookat();
     test_recenter();
     test_projection();
+    test_ray_picture_uv();
     return VR_TEST_END("test_vr_math");
 }

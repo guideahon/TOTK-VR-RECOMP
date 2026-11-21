@@ -64,7 +64,7 @@ def main():
                         f'    "library_path": "./{lib.name}"\n  }}\n}}\n')
     for t, extra in (('test_fake_xr_session', dl), ('test_fake_xr_vulkan', vk + dl)):
         exe = out / (t + EXE)
-        scratch = out / t
+        scratch = out / (t + '.out')   # (not t itself: on Linux that is the executable's name)
         scratch.mkdir(exist_ok=True)
         ok = run([cc, *cflags, *inc, '-o', str(exe), f'tools/vr/{t}.c', *extra, '-lm'])
         step(t, ok and run([str(exe), str(lib), str(scratch)]))
@@ -75,7 +75,7 @@ def main():
     # runtime/vr.c and vr_input.c end to end against fake_xr (the rest of the runtime stubbed; Windows)
     if WIN:
         exe = out / ('test_vr_present' + EXE)
-        scratch = out / 'test_vr_present'
+        scratch = out / 'test_vr_present.out'
         scratch.mkdir(exist_ok=True)
         ok = run([cc, *cflags, '-Wno-unused-function', '-DTOTK_VR', *inc, '-I', 'runtime/third_party', '-I', str(args.vma),
                   '-o', str(exe), 'tests/vr/test_vr_present.c', 'runtime/vr.c', 'runtime/vr_input.c', 'runtime/vr_camera.c',

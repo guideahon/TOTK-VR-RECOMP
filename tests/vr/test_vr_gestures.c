@@ -47,6 +47,39 @@ int main(void) {
     vr_g3 f3 = vr_g3v(0, -0.7f, -0.714f);
     CHECK_EQ_INT(vr_gesture_slot(h, f3, r, RSHOULDER), VR_SLOT_RSHOULDER);
 
+    // (BetterVR 1.0.1) the mouth sits below and ahead of the eyes: cupped hands there whistle, in front of the eyes not
+    CHECK_EQ_INT(vr_gesture_slot(h, f, r, vr_g3v(0, 1.58f, -0.12f)), VR_SLOT_MOUTH);
+    CHECK_EQ_INT(vr_gesture_slot(h, f, r, vr_g3v(0, 1.88f, -0.05f)), VR_SLOT_NONE);
+    // seated: the hips are ahead of the head (leaning back), the waist slot reaches further forward
+    CHECK_EQ_INT(vr_gesture_slot(h, f, r, vr_g3v(-0.25f, 1.0f, -0.1f)), VR_SLOT_NONE);
+    CHECK_EQ_INT(vr_gesture_slot_ex(h, f, r, vr_g3v(-0.25f, 1.0f, -0.1f), true), VR_SLOT_LWAIST);
+
+    VR_TEST("a hand swinging past the left hip takes no rune out (BetterVR 1.0.1)");
+    {
+        vr_gesture_state sw = {0};
+        vr_gesture_in i2 = base(0);
+        i2.hand[0] = LWAIST;
+        i2.hand_speed[0] = 2.5f;   // a slash's follow-through
+        i2.grip[0] = true;
+        uint64_t b2 = run(&sw, i2, 0, 0.1);
+        i2.grip[0] = false;
+        b2 |= run(&sw, i2, 0.1, 0.2);
+        CHECK(!(b2 & BIT(VRB_L)) && !(b2 & BIT(VRB_A)));
+        CHECK_EQ_INT(sw.held, VR_HELD_NONE);
+    }
+
+    VR_TEST("a rune out: a grip away from the slots steers Magnesis, it does not press A (that lets go)");
+    {
+        vr_gesture_state mg = {0};
+        mg.held = VR_HELD_RUNE;
+        vr_gesture_in i3 = base(0);
+        i3.grip[1] = true;
+        uint64_t b3 = run(&mg, i3, 0, 0.6);
+        i3.grip[1] = false;
+        b3 |= run(&mg, i3, 0.6, 0.7);
+        CHECK(!(b3 & BIT(VRB_A)));
+    }
+
     VR_TEST("equip and put away from the shoulders and the waist");
     vr_gesture_state s = {0};
     vr_gesture_in in = base(0);
@@ -248,6 +281,63 @@ int main(void) {
     b = run(&u, in, 0.8, 0.9);
     CHECK(b & BIT(VRB_ZR));
     CHECK(!(b & BIT(VRB_Y)));
+    u.held = VR_HELD_RUNE;
+    b = run(&u, in, 0.9, 1.0);
+    CHECK(b & BIT(VRB_A));
+    CHECK(!(b & (BIT(VRB_R) | BIT(VRB_ZR) | BIT(VRB_Y))));
+
+    VR_TEST("climbing or gliding: A lets go at once (B); riding: A is A, the grips spur and brake (BetterVR 1.0.1)");
+    {
+        vr_gesture_state c = {0};
+        in = base(0);
+        in.climbing = true;
+        in.a = true;
+        b = run(&c, in, 0, 0.05);
+        CHECK(b & BIT(VRB_B));
+        CHECK(!(b & BIT(VRB_A)));
+        in.a = false;
+        b = run(&c, in, 0.05, 0.3);
+        CHECK(!(b & BIT(VRB_A)) && !(b & BIT(VRB_B)));   // (no tap left behind)
+        vr_gesture_state r = {0};
+        in = base(1);
+        in.riding = true;
+        in.a = true;
+        b = run(&r, in, 1, 1.6);
+        CHECK(b & BIT(VRB_A));
+        CHECK(!(b & BIT(VRB_B)));                        // (held: not run)
+        in.a = false;
+        in.grip[1] = true;                               // right grip away from the slots: A, and no grab tap
+        b = run(&r, in, 1.6, 1.8);
+        CHECK(b & BIT(VRB_A));
+        in.grip[1] = false;
+        b = run(&r, in, 1.8, 2.2);
+        CHECK(!(b & BIT(VRB_A)));
+        in.grip[0] = true;                               // left grip: B (brake)
+        b = run(&r, in, 2.2, 2.4);
+        CHECK(b & BIT(VRB_B));
+        in.grip[0] = false;
+        in.hand[1] = RSHOULDER;                          // over a slot the grip still takes the weapon out (Y)
+        in.grip[1] = true;
+        b = run(&r, in, 2.4, 2.5);
+        in.grip[1] = false;
+        b |= run(&r, in, 2.5, 2.8);
+        CHECK(b & BIT(VRB_Y));
+        CHECK(!(b & BIT(VRB_A)));
+        // a pat on the horse's neck: the left hand low ahead, moving - L; still, or not riding, nothing
+        vr_gesture_state p = {0};
+        in = base(5);
+        in.riding = true;
+        in.hand[0] = vr_g3v(-0.1f, 0.95f, -0.45f);
+        b = run(&p, in, 5, 5.3);
+        CHECK(!(b & BIT(VRB_L)));
+        in.hand_speed[0] = 1.5f;
+        b = run(&p, in, 5.3, 5.5);
+        CHECK(b & BIT(VRB_L));
+        vr_gesture_state q = {0};
+        in.riding = false;
+        b = run(&q, in, 6, 6.5);
+        CHECK(!(b & BIT(VRB_L)));
+    }
 
     VR_TEST("buttons: A tap grab / held run, B jump, Y rune / menu, stick clicks");
     vr_gesture_state k = {0};
@@ -284,7 +374,7 @@ int main(void) {
     in.lclick = false;
     CHECK(run(&k, in, 2.5, 2.6) & BIT(VRB_LSTICK));
     in.lclick = true;
-    CHECK(run(&k, in, 2.6, 3.4) & BIT(VRB_RSTICK));   // held: scope
+    CHECK(run(&k, in, 2.6, 3.4) & BIT(VRB_B));   // held: run
     in.lclick = false;
     run(&k, in, 3.4, 3.6);
     in.rclick = true;
@@ -292,25 +382,138 @@ int main(void) {
     in.rclick = false;
     CHECK(run(&k, in, 3.7, 3.8) & BIT(VRB_PLUS));
     in.rclick = true;
-    CHECK(run(&k, in, 3.8, 4.6) & BIT(VRB_MINUS));
+    CHECK(run(&k, in, 3.8, 4.6) & BIT(VRB_RSTICK));   // held: scope
 
-    VR_TEST("parry: a fast left thrust while guarding");
+    VR_TEST("the Quest layout: A, B, jump on the stick, the triggers' menus and parry, the grips' bows and arrows");
+    {
+        vr_gesture_state q = {0};
+        vr_gesture_in qi = base(0);
+        qi.quest = true;
+        uint64_t qb;
+        qi.a = true;
+        CHECK(run(&q, qi, 0, 0.05) & BIT(VRB_A));
+        qi.a = false, qi.b = true;
+        qb = run(&q, qi, 0.05, 0.1);
+        CHECK((qb & BIT(VRB_B)) && !(qb & BIT(VRB_X)));
+        qi.b = false, qi.ry = 0.9f;
+        CHECK(run(&q, qi, 0.1, 0.15) & BIT(VRB_X));   // jump
+        qi.ry = 0.9f, qi.magnesis = true;
+        CHECK(!(run(&q, qi, 0.15, 0.2) & BIT(VRB_X)));   // (not while Magnesis pulls)
+        qi.ry = 0, qi.magnesis = false;
+        run(&q, qi, 0.2, 0.3);
+        // right trigger: a press attacks once; held, the weapons' menu; let go, the weapon out
+        qi.trigger[1] = true;
+        qb = run(&q, qi, 0.3, 0.5);
+        CHECK((qb & BIT(VRB_Y)) && !(qb & BIT(VRB_RIGHT)));
+        CHECK(run(&q, qi, 0.5, 1.0) & BIT(VRB_RIGHT));
+        qi.trigger[1] = false;
+        CHECK(run(&q, qi, 1.0, 1.1) & BIT(VRB_Y));
+        run(&q, qi, 1.1, 1.4);
+        // left trigger: guard at once; held 0.7 s: the shields' menu, the guard let go
+        qi.trigger[0] = true;
+        qb = run(&q, qi, 1.4, 1.9);
+        CHECK((qb & BIT(VRB_ZL)) && !(qb & BIT(VRB_LEFT)));
+        qb = run(&q, qi, 2.2, 2.4);
+        CHECK((qb & BIT(VRB_LEFT)) && !(qb & BIT(VRB_ZL)));
+        qi.trigger[0] = false;
+        run(&q, qi, 2.4, 2.6);
+        // right grip away from the slots: a press takes the bow out (ZR), not grab (A); held: the bows' menu
+        q.held = VR_HELD_NONE;
+        qi.grip[1] = true;
+        qb = run(&q, qi, 2.6, 2.7);
+        CHECK(!(qb & BIT(VRB_A)));
+        qi.grip[1] = false;
+        CHECK(run(&q, qi, 2.7, 2.8) & BIT(VRB_ZR));
+        CHECK(q.held == VR_HELD_BOW);
+        qi.grip[1] = true;   // (the bows' menu: the bow drawn, then d-pad right)
+        qb = run(&q, qi, 2.8, 3.4);
+        CHECK((qb & BIT(VRB_ZR)) && !(qb & BIT(VRB_RIGHT)));
+        CHECK(run(&q, qi, 3.65, 3.9) & (BIT(VRB_RIGHT) | BIT(VRB_ZR)));
+        qi.grip[1] = false;
+        qb = run(&q, qi, 3.9, 4.2);   // let go: the draw cancelled (B under ZR), the bow still out
+        CHECK((qb & BIT(VRB_B)) && (qb & BIT(VRB_ZR)));
+        CHECK(q.held == VR_HELD_BOW);
+        run(&q, qi, 4.2, 4.5);
+        // with the bow out, the left grip held: the arrows' menu (ZR, then d-pad left), not grab
+        qi.grip[0] = true;
+        qb = run(&q, qi, 4.5, 4.6);
+        CHECK(!(qb & BIT(VRB_A)));
+        run(&q, qi, 4.6, 5.3);
+        CHECK(run(&q, qi, 5.3, 5.6) & BIT(VRB_LEFT));
+        qi.grip[0] = false;
+        run(&q, qi, 5.6, 6.0);
+        // nothing in hand: the left grip grabs
+        q.held = VR_HELD_NONE;
+        qi.grip[0] = true;
+        CHECK(run(&q, qi, 6.0, 6.1) & BIT(VRB_A));
+        qi.grip[0] = false;
+        run(&q, qi, 6.1, 6.4);
+        // the left trigger's press: the guard, then A (the parry); A itself does nothing while guarding
+        qi.trigger[0] = true;
+        qb = run(&q, qi, 6.4, 6.55);
+        CHECK((qb & BIT(VRB_ZL)) && (qb & BIT(VRB_A)));
+        qi.a = true;
+        CHECK(!(run(&q, qi, 6.7, 6.8) & BIT(VRB_A)));
+        qi.a = false, qi.trigger[0] = false;
+        run(&q, qi, 6.8, 7.0);
+        // the whistle: both hands at the mouth, both triggers; no guard, attack or parry meanwhile
+        qi.hand[0] = vr_g3v(-0.06f, 1.6f, -0.12f), qi.hand[1] = vr_g3v(0.08f, 1.58f, -0.15f);
+        qi.trigger[0] = true;
+        qb = run(&q, qi, 7.0, 7.05);
+        CHECK(!(qb & BIT(VRB_ZL)) && !(qb & BIT(VRB_A)) && !(qb & BIT(VRB_DOWN)));
+        qi.trigger[1] = true;
+        qb = run(&q, qi, 7.05, 7.1);
+        CHECK((qb & BIT(VRB_DOWN)) && !(qb & BIT(VRB_ZL)) && !(qb & BIT(VRB_Y)));
+        qi.trigger[0] = qi.trigger[1] = false;
+        qi.hand[0] = base(0).hand[0], qi.hand[1] = base(0).hand[1];
+        run(&q, qi, 7.1, 7.3);
+        // B held: a tap, not a run
+        qi.b = true;
+        CHECK(run(&q, qi, 7.3, 7.35) & BIT(VRB_B));
+        CHECK(!(run(&q, qi, 7.7, 8.3) & BIT(VRB_B)));
+        qi.b = false;
+    }
+    VR_TEST("parry: a fast left thrust ahead while guarding; not a jolt, a small move or a sideways swing");
     vr_gesture_state p = {0};
     in = base(0);
     in.trigger[0] = true;
-    for (int i = 0; i < 20; i++) {
+    vr_g3 rest = in.hand[0];
+    bool parried = false;
+    for (int i = 0; i < 30; i++) {   // still, the tracking jittering 1 cm a frame at a speed reading of 2 m/s
         in.now = i / 90.0;
-        in.hand_speed[0] = 0.3f;
-        vr_gestures(&p, &in);
+        in.hand[0] = vr_g3v(rest.x, rest.y, rest.z + (i & 1 ? 0.01f : -0.01f));
+        in.hand_speed[0] = 2.0f;
+        parried |= (vr_gestures(&p, &in) & BIT(VRB_A)) != 0;
     }
-    in.now = 20 / 90.0;
-    in.hand_speed[0] = 1.0f;   // +0.7 m/s in a frame: 63 m/s^2
-    CHECK(vr_gestures(&p, &in) & BIT(VRB_A));
+    CHECK(!parried);
+    for (int i = 0; i < 10; i++) {   // 8 cm ahead, slowly: no parry
+        in.now = (30 + i) / 90.0;
+        in.hand[0] = vr_g3v(rest.x, rest.y, rest.z - 0.008f * i);
+        in.hand_speed[0] = 0.7f;
+        parried |= (vr_gestures(&p, &in) & BIT(VRB_A)) != 0;
+    }
+    CHECK(!parried);
+    for (int i = 0; i < 10; i++) {   // 30 cm sideways, fast: no parry
+        in.now = (40 + i) / 90.0;
+        in.hand[0] = vr_g3v(rest.x + 0.03f * i, rest.y, rest.z - 0.08f);
+        in.hand_speed[0] = 2.7f;
+        parried |= (vr_gestures(&p, &in) & BIT(VRB_A)) != 0;
+    }
+    CHECK(!parried);
+    for (int i = 0; i < 10; i++) {   // a short shove: 12 cm ahead in a tenth of a second at 1.3 m/s: parry
+        in.now = (50 + i) / 90.0;
+        in.hand[0] = vr_g3v(rest.x + 0.27f, rest.y, rest.z - 0.08f - 0.0133f * i);
+        in.hand_speed[0] = 1.3f;
+        parried |= (vr_gestures(&p, &in) & BIT(VRB_A)) != 0;
+    }
+    CHECK(parried);
     vr_gesture_state p2 = {0};
+    in = base(0);
     in.trigger[0] = false;     // not guarding: no parry
-    for (int i = 0; i < 20; i++) {
+    for (int i = 0; i < 10; i++) {
         in.now = i / 90.0;
-        in.hand_speed[0] = i == 19 ? 1.0f : 0.3f;
+        in.hand[0] = vr_g3v(rest.x, rest.y, rest.z - 0.03f * i);
+        in.hand_speed[0] = 2.7f;
         CHECK(!(vr_gestures(&p2, &in) & BIT(VRB_A)));
     }
     VR_TEST("magnesis: a rune out, a grip held: rise and fall to the stick, push and pull to the d-pad");

@@ -170,3 +170,20 @@ static inline bool vr_project_point(const float m[16], vr_vec3 p, vr_vec3 *ndc) 
     *ndc = vr_v3(x / w, y / w, z / w);
     return true;
 }
+
+// Where a ray seen from an eye lands on that eye's picture: the point `dist` along the ray from `from` (direction
+// `dir`), both in the eye's space (tracking space), taken into the eye at `eye` and mapped by its field of view
+// (OpenXR angles, radians) to the picture's coordinates: u 0 at the left edge to 1 at the right, v 0 at the top to 1
+// at the bottom (a texture's, image rows from the top). false when that point is behind the eye. Off the picture the
+// numbers go past 0..1; the caller clamps.
+static inline bool vr_ray_picture_uv(vr_pose eye, vr_vec3 from, vr_vec3 dir, float dist, float left, float right,
+                                     float up, float down, float *u, float *v) {
+    vr_vec3 p = vr_v3_add(from, vr_v3_scale(vr_v3_normalize(dir), dist));
+    vr_vec3 e = vr_quat_rotate(vr_quat_conj(eye.q), vr_v3_sub(p, eye.p));
+    if (!(e.z < -1e-4f)) return false;
+    float tx = e.x / -e.z, ty = e.y / -e.z;
+    float tl = tanf(left), tr = tanf(right), tu = tanf(up), td = tanf(down);
+    *u = (tx - tl) / (tr - tl);
+    *v = (tu - ty) / (tu - td);
+    return true;
+}

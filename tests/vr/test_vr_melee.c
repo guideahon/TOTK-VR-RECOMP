@@ -172,6 +172,15 @@ static void test_shield(void) {
     // looking down at the hand does not lower the shield (only the heading counts)
     vr_pose down = {vr_quat_axis_angle(vr_v3(1, 0, 0), -40 * DEG), {0, 1.6f, 0}};
     CHECK(vr_shield_raised(false, down, vr_v3(-0.1f, 1.45f, -0.35f)));
+    // at the chest (0.4 m under the eyes) it is up too; at the belly it is not
+    CHECK(vr_shield_raised(false, h, vr_v3(-0.1f, 1.2f, -0.3f)));
+    CHECK(!vr_shield_raised(false, h, vr_v3(-0.1f, 1.05f, -0.3f)));
+    // only a shield in the left hand with a one-handed weapon in the right guards (BetterVR); not known: the gesture
+    CHECK(vr_shield_allowed(3, 1));
+    CHECK(!vr_shield_allowed(0, 1));
+    CHECK(!vr_shield_allowed(2, 0));
+    CHECK(!vr_shield_allowed(3, 0));
+    CHECK(vr_shield_allowed(-1, -1));
 }
 
 int main(void) {
