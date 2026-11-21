@@ -525,6 +525,46 @@ static void test_lost(void) {
     set_env("FAKE_XR_SCRIPT", NULL);
 }
 
+// FAKE_XR_LIVE: the file is read every 3 frames; a changed one applies once and is acknowledged with its seq
+static void test_live(void) {
+    VR_TEST("live file");
+    const char *live = scratch_file("live.txt");
+    char ack[1300];
+    snprintf(ack, sizeof ack, "%s.ack", live);
+    remove(ack);
+    write_file(live, "seq 1\nheadq 0.5 1.5 -1 0 0.7071068 0 0.7071068\n");
+    set_env("FAKE_XR_LIVE", live);
+    XrInstance inst = make_instance(true, XR_SUCCESS);
+    XrSession s = make_session(inst, get_system(inst));
+    while (poll_state(inst) != XR_SESSION_STATE_UNKNOWN) {}
+    begin_session(s);
+    XrSpace stage = ref_space(s, XR_REFERENCE_SPACE_TYPE_STAGE, 0);
+    XrSpace view = ref_space(s, XR_REFERENCE_SPACE_TYPE_VIEW, 0);
+    XrTime t = 0;
+    for (int i = 0; i < 4; i++) t = frame(s, NULL, NULL);
+    XrSpaceLocation loc = {XR_TYPE_SPACE_LOCATION};
+    CHECK_XR(xrLocateSpace(view, stage, t, &loc), XR_SUCCESS);
+    CHECK_NEAR(loc.pose.position.x, 0.5, 1e-4);
+    CHECK_NEAR(loc.pose.position.z, -1, 1e-4);
+    CHECK_NEAR(loc.pose.orientation.y, 0.7071068, 1e-4);
+    char *a = read_file(ack);
+    CHECK(a && atoi(a) == 1);
+    free(a);
+    // rewritten: the euler form (yaw 0, looking up 90), a line it can't read is skipped
+    write_file(live, "seq 2\nhead 0 1.2 0 0 90 0\nnonsense 1 2 3\n");
+    for (int i = 0; i < 4; i++) t = frame(s, NULL, NULL);
+    CHECK_XR(xrLocateSpace(view, stage, t, &loc), XR_SUCCESS);
+    CHECK_NEAR(loc.pose.position.y, 1.2, 1e-4);
+    CHECK_NEAR(loc.pose.orientation.x, 0.7071068, 1e-4);
+    a = read_file(ack);
+    CHECK(a && atoi(a) == 2);
+    free(a);
+    CHECK_XR(xrDestroySpace(stage), XR_SUCCESS);
+    CHECK_XR(xrDestroySpace(view), XR_SUCCESS);
+    CHECK_XR(xrDestroyInstance(inst), XR_SUCCESS);
+    set_env("FAKE_XR_LIVE", NULL);
+}
+
 int main(int argc, char **argv) {
     if (argc < 3) {
         fprintf(stderr, "usage: %s <fake_xr library> <scratch folder>\n", argv[0]);
@@ -544,5 +584,6 @@ int main(int argc, char **argv) {
     test_views();
     test_focus_and_exit();
     test_lost();
+    test_live();
     return VR_TEST_END("test_fake_xr_session");
 }

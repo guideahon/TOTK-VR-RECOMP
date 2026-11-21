@@ -74,11 +74,11 @@ static void load(const char *path) {
 }
 
 static XrInstance make_instance(void) {
-    const char *ext[] = {XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME};
+    const char *ext[] = {XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME, XR_KHR_COMPOSITION_LAYER_DEPTH_EXTENSION_NAME};
     XrInstanceCreateInfo ci = {XR_TYPE_INSTANCE_CREATE_INFO};
     snprintf(ci.applicationInfo.applicationName, sizeof ci.applicationInfo.applicationName, "test_fake_xr_vulkan");
     ci.applicationInfo.apiVersion = XR_MAKE_VERSION(1, 0, 0);
-    ci.enabledExtensionCount = 1;
+    ci.enabledExtensionCount = 2;
     ci.enabledExtensionNames = ext;
     XrInstance inst = XR_NULL_HANDLE;
     CHECK_XR(xrCreateInstance(&ci, &inst), XR_SUCCESS);
@@ -192,6 +192,33 @@ static void clear_image(gpu *g, VkImage img, const float rgba[4]) {
     vkWaitForFences(g->dev, 1, &g->fence, VK_TRUE, UINT64_MAX);
 }
 
+static void clear_depth_image(gpu *g, VkImage img, uint32_t layers, float depth) {
+    vkResetCommandBuffer(g->cb, 0);
+    VkCommandBufferBeginInfo bi = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+                                   .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
+    vkBeginCommandBuffer(g->cb, &bi);
+    VkImageSubresourceRange range = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, layers};
+    VkImageMemoryBarrier b = {.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER, .dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+                              .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED, .newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                              .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                              .image = img, .subresourceRange = range};
+    vkCmdPipelineBarrier(g->cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL,
+                         1, &b);
+    VkClearDepthStencilValue d = {depth, 0};
+    vkCmdClearDepthStencilImage(g->cb, img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &d, 1, &range);
+    b.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    b.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+    b.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    b.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    vkCmdPipelineBarrier(g->cb, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, NULL, 0, NULL,
+                         1, &b);
+    vkEndCommandBuffer(g->cb);
+    VkSubmitInfo si = {.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &g->cb};
+    vkResetFences(g->dev, 1, &g->fence);
+    vkQueueSubmit(g->queue, 1, &si, g->fence);
+    vkWaitForFences(g->dev, 1, &g->fence, VK_TRUE, UINT64_MAX);
+}
+
 static char *read_file(const char *path) {
     FILE *f = fopen(path, "rb");
     if (!f) return NULL;
@@ -269,7 +296,7 @@ int main(int argc, char **argv) {
                                   VK_FORMAT_B8G8R8A8_SRGB, 1, 64, 32, 1, 1, 1};
     XrSwapchain sc = XR_NULL_HANDLE;
     swci.format = VK_FORMAT_D32_SFLOAT;
-    CHECK_XR(xrCreateSwapchain(s, &swci, &sc), XR_ERROR_SWAPCHAIN_FORMAT_UNSUPPORTED);
+    CHECK_XR(xrCreateSwapchain(s, &swci, &sc), XR_ERROR_FEATURE_UNSUPPORTED);
     swci.format = VK_FORMAT_B8G8R8A8_SRGB;
     CHECK_XR(xrCreateSwapchain(s, &swci, &sc), XR_SUCCESS);
     uint32_t ni = 0;
@@ -316,6 +343,58 @@ int main(int argc, char **argv) {
         while ((st = poll_state(inst)) != XR_SESSION_STATE_UNKNOWN) {}
     }
 
+    VR_TEST("composition depth");
+    XrSwapchainCreateInfo dsci = {XR_TYPE_SWAPCHAIN_CREATE_INFO, NULL, 0,
+                                  XR_SWAPCHAIN_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT,
+                                  VK_FORMAT_D32_SFLOAT, 1, 32, 16, 1, 2, 1};
+    XrSwapchain dsc = XR_NULL_HANDLE;
+    CHECK_XR(xrCreateSwapchain(s, &dsci, &dsc), XR_SUCCESS);
+    uint32_t ndi = 0;
+    CHECK_XR(xrEnumerateSwapchainImages(dsc, 0, &ndi, NULL), XR_SUCCESS);
+    XrSwapchainImageVulkanKHR dimgs[8];
+    for (int i = 0; i < 8; i++) dimgs[i] = (XrSwapchainImageVulkanKHR){XR_TYPE_SWAPCHAIN_IMAGE_VULKAN_KHR};
+    CHECK_XR(xrEnumerateSwapchainImages(dsc, ndi, &ndi, (XrSwapchainImageBaseHeader *)dimgs), XR_SUCCESS);
+    XrFrameState dfs = {XR_TYPE_FRAME_STATE};
+    CHECK_XR(xrWaitFrame(s, NULL, &dfs), XR_SUCCESS);
+    CHECK_XR(xrBeginFrame(s, NULL), XR_SUCCESS);
+    uint32_t didx = 99;
+    CHECK_XR(xrAcquireSwapchainImage(dsc, NULL, &didx), XR_SUCCESS);
+    CHECK_XR(xrWaitSwapchainImage(dsc, &wi), XR_SUCCESS);
+    CHECK(didx < ndi);
+    clear_depth_image(&g, dimgs[didx].image, 2, 0.5f);
+    CHECK_XR(xrReleaseSwapchainImage(dsc, NULL), XR_SUCCESS);
+    XrCompositionLayerProjectionView pviews[2];
+    XrCompositionLayerDepthInfoKHR dinfo[2];
+    for (uint32_t i = 0; i < 2; i++) {
+        pviews[i] = (XrCompositionLayerProjectionView){XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW};
+        pviews[i].pose = (XrPosef){{0, 0, 0, 1}, {i ? 0.03f : -0.03f, 0, 0}};
+        pviews[i].fov = (XrFovf){-0.7f, 0.7f, 0.7f, -0.7f};
+        pviews[i].subImage.swapchain = sc;
+        pviews[i].subImage.imageRect = (XrRect2Di){{0, 0}, {64, 32}};
+        dinfo[i] = (XrCompositionLayerDepthInfoKHR){XR_TYPE_COMPOSITION_LAYER_DEPTH_INFO_KHR};
+        dinfo[i].subImage.swapchain = dsc;
+        dinfo[i].subImage.imageRect = (XrRect2Di){{0, 0}, {32, 16}};
+        dinfo[i].subImage.imageArrayIndex = i;
+        dinfo[i].minDepth = 0.0f;
+        dinfo[i].maxDepth = 1.0f;
+        dinfo[i].nearZ = 0.1f;
+        dinfo[i].farZ = 25000.0f;
+        pviews[i].next = &dinfo[i];
+    }
+    XrCompositionLayerProjection projection = {XR_TYPE_COMPOSITION_LAYER_PROJECTION};
+    projection.space = local;
+    projection.viewCount = 2;
+    projection.views = pviews;
+    const XrCompositionLayerBaseHeader *projection_layer[] = {(const XrCompositionLayerBaseHeader *)&projection};
+    XrFrameEndInfo dei = {XR_TYPE_FRAME_END_INFO, NULL, dfs.predictedDisplayTime, XR_ENVIRONMENT_BLEND_MODE_OPAQUE,
+                          1, projection_layer};
+    CHECK_XR(xrEndFrame(s, &dei), XR_SUCCESS);
+    while (poll_state(inst) != XR_SESSION_STATE_UNKNOWN) {}
+    char *depth_log = read_file(log_path);
+    CHECK(depth_log && strstr(depth_log, "composition depth view 0 32x16 near 0.100 far 25000.000") != NULL);
+    CHECK(depth_log && strstr(depth_log, "composition depth view 1 32x16 near 0.100 far 25000.000") != NULL);
+    free(depth_log);
+
     VR_TEST("captures");
     char *log = read_file(log_path);
     CHECK(log != NULL);
@@ -337,6 +416,7 @@ int main(int argc, char **argv) {
     while ((st = poll_state(inst)) != XR_SESSION_STATE_STOPPING && st != XR_SESSION_STATE_UNKNOWN) {}
     CHECK_EQ_INT(st, XR_SESSION_STATE_STOPPING);
     CHECK_XR(xrEndSession(s), XR_SUCCESS);
+    CHECK_XR(xrDestroySwapchain(dsc), XR_SUCCESS);
     CHECK_XR(xrDestroySwapchain(sc), XR_SUCCESS);
     CHECK_XR(xrDestroySpace(local), XR_SUCCESS);
     CHECK_XR(xrDestroySession(s), XR_SUCCESS);

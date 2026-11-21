@@ -44,6 +44,7 @@ typedef struct {
     session *s;
     VkFormat format;
     uint32_t w, h, layers;
+    bool depth;
     VkImage img[FXVK_IMAGES];
     VkDeviceMemory mem[FXVK_IMAGES];
     int state[FXVK_IMAGES];  // 0 free (the runtime's), 1 acquired, 2 waited
@@ -56,6 +57,19 @@ typedef struct {
 static swapchain *get_swapchain(XrSwapchain h) {
     swapchain *sc = (swapchain *)(uintptr_t)h;
     return sc && sc->magic == MAGIC_SWAPCHAIN ? sc : NULL;
+}
+
+static bool fxvk_depth_view(const XrCompositionLayerProjectionView *view, uint32_t *w, uint32_t *h,
+                            float *near_z, float *far_z) {
+    if (!view || !view->next) return false;
+    const XrCompositionLayerDepthInfoKHR *d = (const XrCompositionLayerDepthInfoKHR *)view->next;
+    swapchain *sc = get_swapchain(d->subImage.swapchain);
+    if (!sc || !sc->depth) return false;
+    if (w) *w = sc->w;
+    if (h) *h = sc->h;
+    if (near_z) *near_z = d->nearZ;
+    if (far_z) *far_z = d->farZ;
+    return true;
 }
 
 // ---- instance-level: requirements, instance, GPU, device ----
@@ -199,7 +213,7 @@ static uint32_t fxvk_memory_type(fxvk *v, uint32_t bits, VkMemoryPropertyFlags w
 
 // ---- swapchains ----
 static const int64_t swapchain_formats[] = {VK_FORMAT_B8G8R8A8_SRGB, VK_FORMAT_R8G8B8A8_SRGB, VK_FORMAT_B8G8R8A8_UNORM,
-                                            VK_FORMAT_R8G8B8A8_UNORM};
+                                            VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_D32_SFLOAT};
 #define SWAPCHAIN_FORMAT_COUNT (sizeof swapchain_formats / sizeof *swapchain_formats)
 
 static XrResult XRAPI_CALL fx_EnumerateSwapchainFormats(XrSession h, uint32_t cap, uint32_t *count, int64_t *formats) {
@@ -222,6 +236,9 @@ static XrResult XRAPI_CALL fx_CreateSwapchain(XrSession h, const XrSwapchainCrea
     bool known = false;
     for (size_t i = 0; i < SWAPCHAIN_FORMAT_COUNT; i++) known |= swapchain_formats[i] == ci->format;
     if (!known) return XR_ERROR_SWAPCHAIN_FORMAT_UNSUPPORTED;
+    bool depth_format = ci->format == VK_FORMAT_D32_SFLOAT;
+    bool depth_usage = (ci->usageFlags & XR_SWAPCHAIN_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) != 0;
+    if (depth_format != depth_usage) return XR_ERROR_FEATURE_UNSUPPORTED;
     if (!ci->width || !ci->height || ci->width > 4096 || ci->height > 4096 || ci->sampleCount != 1 || ci->faceCount != 1 ||
         ci->mipCount != 1 || !ci->arraySize || ci->arraySize > 2)
         return XR_ERROR_VALIDATION_FAILURE;
@@ -231,7 +248,7 @@ static XrResult XRAPI_CALL fx_CreateSwapchain(XrSession h, const XrSwapchainCrea
     if (ci->usageFlags & XR_SWAPCHAIN_USAGE_TRANSFER_SRC_BIT) usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
     if (ci->usageFlags & XR_SWAPCHAIN_USAGE_SAMPLED_BIT) usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
     if (ci->usageFlags & XR_SWAPCHAIN_USAGE_UNORDERED_ACCESS_BIT) usage |= VK_IMAGE_USAGE_STORAGE_BIT;
-    if (ci->usageFlags & XR_SWAPCHAIN_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) return XR_ERROR_FEATURE_UNSUPPORTED;
+    if (depth_usage) usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
     swapchain *sc = calloc(1, sizeof *sc);
     sc->magic = MAGIC_SWAPCHAIN;
     sc->s = s;
@@ -239,6 +256,7 @@ static XrResult XRAPI_CALL fx_CreateSwapchain(XrSession h, const XrSwapchainCrea
     sc->w = ci->width;
     sc->h = ci->height;
     sc->layers = ci->arraySize;
+    sc->depth = depth_usage;
     sc->released = -1;
     VkImageCreateFlags flags = (ci->createFlags & XR_SWAPCHAIN_CREATE_PROTECTED_CONTENT_BIT) ? VK_IMAGE_CREATE_PROTECTED_BIT : 0;
     if (flags) { free(sc); return XR_ERROR_FEATURE_UNSUPPORTED; }
@@ -361,7 +379,6 @@ static XrResult check_subimage(const XrSwapchainSubImage *si) {
 }
 
 static XrResult fxvk_check_layer(session *s, const XrCompositionLayerBaseHeader *l) {
-    (void)s;
     if (l->type == XR_TYPE_COMPOSITION_LAYER_QUAD) {
         const XrCompositionLayerQuad *q = (const XrCompositionLayerQuad *)l;
         if (!(q->size.width > 0) || !(q->size.height > 0)) return XR_ERROR_VALIDATION_FAILURE;
@@ -369,11 +386,24 @@ static XrResult fxvk_check_layer(session *s, const XrCompositionLayerBaseHeader 
     }
     if (l->type == XR_TYPE_COMPOSITION_LAYER_PROJECTION) {
         const XrCompositionLayerProjection *p = (const XrCompositionLayerProjection *)l;
+        bool any_depth = false, all_depth = true;
         for (uint32_t i = 0; i < p->viewCount; i++) {
             if (p->views[i].type != XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW) return XR_ERROR_VALIDATION_FAILURE;
             XrResult r = check_subimage(&p->views[i].subImage);
             if (XR_FAILED(r)) return r;
+            if (!p->views[i].next) { all_depth = false; continue; }
+            any_depth = true;
+            if (!s->inst->composition_depth) return XR_ERROR_EXTENSION_NOT_PRESENT;
+            const XrCompositionLayerDepthInfoKHR *d = (const XrCompositionLayerDepthInfoKHR *)p->views[i].next;
+            if (d->type != XR_TYPE_COMPOSITION_LAYER_DEPTH_INFO_KHR || !(d->minDepth < d->maxDepth) ||
+                d->minDepth < 0.0f || d->maxDepth > 1.0f || !(d->nearZ > 0.0f) || !(d->farZ > 0.0f) ||
+                d->nearZ == d->farZ)
+                return XR_ERROR_VALIDATION_FAILURE;
+            swapchain *depth_sc = get_swapchain(d->subImage.swapchain);
+            if (!depth_sc || !depth_sc->depth) return XR_ERROR_LAYER_INVALID;
+            if (XR_FAILED(r = check_subimage(&d->subImage))) return r;
         }
+        if (any_depth && !all_depth) return XR_ERROR_VALIDATION_FAILURE;
         return XR_SUCCESS;
     }
     return XR_ERROR_LAYER_INVALID;
@@ -503,18 +533,23 @@ static void fxvk_capture_one(session *s, const XrSwapchainSubImage *si, const ch
 
 static void fxvk_capture(session *s, const XrFrameEndInfo *ei, uint64_t frame) {
     config *c = &s->inst->cfg;
-    if (!s->vk || c->capture_every <= 0 || frame % (uint64_t)c->capture_every != 0) return;
+    char shot[96] = "";   // (a live `shot`: these layers, whatever the period)
+    if (c->shot_tag[0]) snprintf(shot, sizeof shot, "%s", c->shot_tag), c->shot_tag[0] = 0;
+    if (!s->vk || (!shot[0] && (c->capture_every <= 0 || frame % (uint64_t)c->capture_every != 0))) return;
+    char name[110];
+    if (shot[0]) snprintf(name, sizeof name, "%s", shot);
+    else snprintf(name, sizeof name, "frame%06llu", (unsigned long long)frame);
     for (uint32_t i = 0; i < ei->layerCount; i++) {
         const XrCompositionLayerBaseHeader *l = ei->layers[i];
-        char tag[96];
+        char tag[160];
         if (l->type == XR_TYPE_COMPOSITION_LAYER_QUAD) {
-            snprintf(tag, sizeof tag, "frame%06llu_layer%u_quad", (unsigned long long)frame, i);
+            snprintf(tag, sizeof tag, "%s_layer%u_quad", name, i);
             fxvk_capture_one(s, &((const XrCompositionLayerQuad *)l)->subImage, tag,
                              (l->layerFlags & XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT) != 0);
         } else if (l->type == XR_TYPE_COMPOSITION_LAYER_PROJECTION) {
             const XrCompositionLayerProjection *p = (const XrCompositionLayerProjection *)l;
             for (uint32_t v = 0; v < p->viewCount; v++) {
-                snprintf(tag, sizeof tag, "frame%06llu_layer%u_view%u", (unsigned long long)frame, i, v);
+                snprintf(tag, sizeof tag, "%s_layer%u_view%u", name, i, v);
                 fxvk_capture_one(s, &p->views[v].subImage, tag, false);
                 const XrFovf *fv = &p->views[v].fov;   // (the field the picture was given: tests map it to angles)
                 logf_(s->inst, "capture %s fov %.4f %.4f %.4f %.4f\n", tag, fv->angleLeft, fv->angleRight, fv->angleUp,

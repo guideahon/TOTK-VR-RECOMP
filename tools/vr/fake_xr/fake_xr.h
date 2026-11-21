@@ -15,6 +15,12 @@
 //   FAKE_XR_LOG=<file>     what the app does: one line per state change and per xrEndFrame (layers, their kind)
 //   FAKE_XR_HZ=<n>         the display rate (default 90)
 //   FAKE_XR_IPD=<m>        the distance between the eyes (default 0.063)
+//   FAKE_XR_LIVE=<file>    poses and inputs set from outside while the app runs (tools/vr/handsim.py): read every 3
+//                          frames, applied once when it changed, acknowledged in <file>.ack ("<seq> <frame>"). Lines:
+//                          seq <n> | head x y z yaw pitch roll | headq x y z qx qy qz qw | hand left|right x y z yaw
+//                          pitch roll | handq left|right x y z qx qy qz qw | hand left|right script | button|value
+//                          <path> <v> | stick <path> <x> <y> | shot <tag> (the next frame's layers captured as <tag>_*)
+//                          | focus | unfocus
 //
 // Phase 0 has no graphics: sessions need XR_MND_headless. XR_KHR_vulkan_enable2 and swapchains come in phase 1.
 #pragma once

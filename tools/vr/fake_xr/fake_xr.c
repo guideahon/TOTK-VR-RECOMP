@@ -30,7 +30,7 @@
 #define MAX_SCRIPT 4096
 
 // ---- the script ----
-enum { EV_HEAD, EV_UNFOCUS, EV_FOCUS, EV_EXIT, EV_LOSE, EV_INPUT };
+enum { EV_HEAD, EV_UNFOCUS, EV_FOCUS, EV_EXIT, EV_LOSE, EV_INPUT, EV_FAIL };
 typedef struct {
     double t;
     int kind;
@@ -49,13 +49,22 @@ typedef struct {
     struct { double t[1024]; vr_pose p[1024]; int n; } hands[2];  // hand poses over time (interpolated), left / right
     char capture_dir[1024];  // FAKE_XR_CAPTURE: PPMs of the layers' images go here
     int capture_every;       // FAKE_XR_CAPTURE_EVERY: every n-th ended frame (0: none)
+    // FAKE_XR_LIVE=<file>: poses and inputs set from outside while the app runs (tools/vr/handsim.py), read every few
+    // frames; a changed file applies once, then <file>.ack gets its `seq` and the frame
+    char live_path[1024];
+    char *live_last;         // the file as last applied
+    bool live_hand[2];       // the hand is where the live file put it (not the script's track)
+    vr_pose live_pose[2];    // ... moving from live_from to it over [live_t0, live_t0 + live_dur] (display times), so
+    vr_pose live_from[2];    //     its pose has a velocity like a real hand's, not jumps (motion combat reads it)
+    long long live_t0[2], live_dur[2];
+    char shot_tag[96];       // `shot <tag>`: the next ended frame's layers are captured under this name
 } config;
 
 // ---- handles ----
 typedef struct session session;
 typedef struct {
     uint32_t magic;
-    bool headless, vulkan;  // the extensions the app enabled
+    bool headless, vulkan, composition_depth;  // the extensions the app enabled
     bool vk_requirements;   // xrGetVulkanGraphicsRequirements2KHR was called
     VkInstance vk_inst;     // what xrCreateVulkanInstanceKHR / ...Device2KHR / ...DeviceKHR made or chose
     PFN_vkGetInstanceProcAddr vk_gipa;
@@ -75,13 +84,14 @@ struct session {
     instance *inst;
     XrSessionState state;   // as the app has seen it (through xrPollEvent)
     XrSessionState queued;  // after every queued event
-    bool running, lost, synced;
+    bool running, lost, synced, failed;   // (failed: the script's `fail`: frame calls answer XR_ERROR_RUNTIME_FAILURE)
     pending_event events[MAX_EVENTS];
     int ev_head, ev_count;
     uint64_t frame;         // frames waited
     XrTime first_time, last_predicted;
     int waited;             // xrWaitFrame calls not yet followed by xrBeginFrame
     bool begun;
+    bool depth_logged;
     int script_at;          // the next script line to apply
     vr_pose head;           // VIEW in STAGE space
     struct fxvk *vk;        // the graphics binding (fake_xr_vk.inc), NULL headless
@@ -158,6 +168,7 @@ static bool load_script(config *c, const char *path) {
         else if (!strcmp(word, "focus")) l->kind = EV_FOCUS;
         else if (!strcmp(word, "exit")) l->kind = EV_EXIT;
         else if (!strcmp(word, "lose")) l->kind = EV_LOSE;
+        else if (!strcmp(word, "fail")) l->kind = EV_FAIL;   // (from then on the frame calls fail: XR_ERROR_RUNTIME_FAILURE)
         else if (!strcmp(word, "hand")) {  // (a key pose of a hand's track, not an event: interpolated in between)
             char side[8];
             float v[6];
@@ -238,7 +249,8 @@ static space *get_space(XrSpace h) {
     } while (0)
 
 // ---- instance ----
-static const char *const extensions[] = {XR_MND_HEADLESS_EXTENSION_NAME, XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME};
+static const char *const extensions[] = {XR_MND_HEADLESS_EXTENSION_NAME, XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME,
+                                         XR_KHR_COMPOSITION_LAYER_DEPTH_EXTENSION_NAME};
 #define EXTENSION_COUNT (sizeof extensions / sizeof *extensions)
 
 static XrResult XRAPI_CALL fx_EnumerateInstanceExtensionProperties(const char *layer, uint32_t cap, uint32_t *count,
@@ -262,7 +274,7 @@ static XrResult XRAPI_CALL fx_CreateInstance(const XrInstanceCreateInfo *ci, XrI
     if (XR_VERSION_MAJOR(ci->applicationInfo.apiVersion) != 1) return XR_ERROR_API_VERSION_UNSUPPORTED;
     if (!ci->applicationInfo.applicationName[0]) return XR_ERROR_NAME_INVALID;
     if (ci->enabledApiLayerCount) return XR_ERROR_API_LAYER_NOT_PRESENT;
-    bool headless = false, vulkan = false;
+    bool headless = false, vulkan = false, composition_depth = false;
     for (uint32_t i = 0; i < ci->enabledExtensionCount; i++) {
         bool known = false;
         for (uint32_t k = 0; k < EXTENSION_COUNT; k++)
@@ -270,12 +282,14 @@ static XrResult XRAPI_CALL fx_CreateInstance(const XrInstanceCreateInfo *ci, XrI
         if (!known) return XR_ERROR_EXTENSION_NOT_PRESENT;
         if (!strcmp(ci->enabledExtensionNames[i], XR_MND_HEADLESS_EXTENSION_NAME)) headless = true;
         if (!strcmp(ci->enabledExtensionNames[i], XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME)) vulkan = true;
+        if (!strcmp(ci->enabledExtensionNames[i], XR_KHR_COMPOSITION_LAYER_DEPTH_EXTENSION_NAME)) composition_depth = true;
     }
     instance *in = calloc(1, sizeof *in);
     in->magic = MAGIC_INSTANCE;
     fxa_reset();
     in->headless = headless;
     in->vulkan = vulkan;
+    in->composition_depth = composition_depth;
     in->cfg.ipd = FAKE_XR_DEFAULT_IPD;
     in->cfg.hz = FAKE_XR_DEFAULT_HZ;
     const char *v;
@@ -287,6 +301,7 @@ static XrResult XRAPI_CALL fx_CreateInstance(const XrInstanceCreateInfo *ci, XrI
         in->cfg.capture_every = 30;
     }
     if ((v = getenv("FAKE_XR_CAPTURE_EVERY")) && *v) in->cfg.capture_every = atoi(v);
+    if ((v = getenv("FAKE_XR_LIVE")) && *v) snprintf(in->cfg.live_path, sizeof in->cfg.live_path, "%s", v);
     if ((v = getenv("FAKE_XR_SCRIPT")) && *v && !load_script(&in->cfg, v)) {
         fprintf(stderr, "fake_xr: can't read FAKE_XR_SCRIPT %s\n", v);
         if (in->cfg.log) fclose(in->cfg.log);
@@ -425,6 +440,8 @@ static XrResult XRAPI_CALL fx_EnumerateEnvironmentBlendModes(XrInstance h, XrSys
 static XrResult fxvk_session_create(session *s, const XrGraphicsBindingVulkanKHR *b);
 static void fxvk_session_destroy(session *s);
 static XrResult fxvk_check_layer(session *s, const XrCompositionLayerBaseHeader *l);
+static bool fxvk_depth_view(const XrCompositionLayerProjectionView *view, uint32_t *w, uint32_t *h,
+                            float *near_z, float *far_z);
 static void fxvk_capture(session *s, const XrFrameEndInfo *ei, uint64_t frame);
 
 // ---- session ----
@@ -550,6 +567,9 @@ static void run_script(session *s, XrTime display) {
             break;
         case EV_EXIT: queue_stop(s); break;
         case EV_INPUT: fxa_script(l->input_kind, l->path, l->x, l->y); break;
+        case EV_FAIL:
+            if (!s->failed) s->failed = true, logf_(s->inst, "runtime failure t=%.3f\n", t);
+            break;
         case EV_LOSE:
             if (!s->lost) {
                 s->lost = true;
@@ -559,6 +579,88 @@ static void run_script(session *s, XrTime display) {
             break;
         }
     }
+}
+
+// ---- the live file (FAKE_XR_LIVE) ----
+static vr_pose pose_lerp(vr_pose a, vr_pose b, float k) {
+    vr_pose r;
+    r.p = vr_v3_add(vr_v3_scale(a.p, 1 - k), vr_v3_scale(b.p, k));
+    vr_quat qb = b.q;  // (nlerp the short way)
+    if (a.q.x * qb.x + a.q.y * qb.y + a.q.z * qb.z + a.q.w * qb.w < 0) qb = (vr_quat){-qb.x, -qb.y, -qb.z, -qb.w};
+    r.q = vr_quat_normalize((vr_quat){a.q.x * (1 - k) + qb.x * k, a.q.y * (1 - k) + qb.y * k,
+                                      a.q.z * (1 - k) + qb.z * k, a.q.w * (1 - k) + qb.w * k});
+    return r;
+}
+static vr_pose live_at(config *c, int h, XrTime t) {
+    if (t >= c->live_t0[h] + c->live_dur[h] || c->live_dur[h] <= 0) return c->live_pose[h];
+    if (t <= c->live_t0[h]) return c->live_from[h];
+    return pose_lerp(c->live_from[h], c->live_pose[h], (float)(t - c->live_t0[h]) / (float)c->live_dur[h]);
+}
+// a hand given a new pose: it moves there from where it is over the time since the last new pose (5 to 150 ms: the
+// writer's pace), starting now - one step behind the writer, but with the speed it moved at
+static void live_set(session *s, int h, vr_pose p) {
+    config *c = &s->inst->cfg;
+    XrTime now = s->last_predicted;
+    if (!c->live_hand[h]) {
+        c->live_hand[h] = true, c->live_from[h] = c->live_pose[h] = p, c->live_t0[h] = now, c->live_dur[h] = 0;
+        return;
+    }
+    vr_pose cur = live_at(c, h, now);
+    long long dur = now - c->live_t0[h];
+    dur = dur < 5000000 ? 5000000 : dur > 150000000 ? 150000000 : dur;
+    c->live_from[h] = cur, c->live_pose[h] = p, c->live_t0[h] = now, c->live_dur[h] = dur;
+}
+
+// lines: seq <n> | head x y z yaw pitch roll | headq x y z qx qy qz qw | hand left|right x y z yaw pitch roll |
+// handq left|right x y z qx qy qz qw | hand left|right script (back to the script's track) | button|value <path> <v> |
+// stick <path> <x> <y> | shot <tag> | focus | unfocus
+static void live_poll(session *s) {
+    config *c = &s->inst->cfg;
+    if (!c->live_path[0] || s->frame % 3) return;
+    FILE *f = fopen(c->live_path, "rb");
+    if (!f) return;
+    char *buf = malloc(65536);
+    size_t n = fread(buf, 1, 65535, f);
+    fclose(f);
+    buf[n] = 0;
+    if (c->live_last && !strcmp(c->live_last, buf)) { free(buf); return; }
+    free(c->live_last);
+    c->live_last = strdup(buf);
+    long seq = -1;
+    for (char *line = strtok(buf, "\r\n"); line; line = strtok(NULL, "\r\n")) {
+        char w[16], side[8], path[96], tag[96];
+        float v[7];
+        if (sscanf(line, " seq %ld", &seq) == 1) continue;
+        if (sscanf(line, " %15s", w) != 1 || w[0] == '#') continue;
+        if (!strcmp(w, "head") && sscanf(line, " head %f %f %f %f %f %f", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5]) == 6)
+            s->head = euler_pose(v[0], v[1], v[2], v[3], v[4], v[5]);
+        else if (!strcmp(w, "headq") &&
+                 sscanf(line, " headq %f %f %f %f %f %f %f", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5], &v[6]) == 7)
+            s->head = (vr_pose){vr_quat_normalize((vr_quat){v[3], v[4], v[5], v[6]}), {v[0], v[1], v[2]}};
+        else if (!strcmp(w, "hand") && sscanf(line, " hand %7s script", side) == 1 && strstr(line, "script"))
+            c->live_hand[!strcmp(side, "right")] = false;
+        else if (!strcmp(w, "hand") &&
+                 sscanf(line, " hand %7s %f %f %f %f %f %f", side, &v[0], &v[1], &v[2], &v[3], &v[4], &v[5]) == 7) {
+            live_set(s, !strcmp(side, "right"), euler_pose(v[0], v[1], v[2], v[3], v[4], v[5]));
+        } else if (!strcmp(w, "handq") && sscanf(line, " handq %7s %f %f %f %f %f %f %f", side, &v[0], &v[1], &v[2],
+                                                 &v[3], &v[4], &v[5], &v[6]) == 8) {
+            live_set(s, !strcmp(side, "right"),
+                     (vr_pose){vr_quat_normalize((vr_quat){v[3], v[4], v[5], v[6]}), {v[0], v[1], v[2]}});
+        } else if ((!strcmp(w, "button") || !strcmp(w, "value")) && sscanf(line, " %*s %95s %f", path, &v[0]) == 2)
+            fxa_script(w, path, v[0], 0);
+        else if (!strcmp(w, "stick") && sscanf(line, " stick %95s %f %f", path, &v[0], &v[1]) == 3)
+            fxa_script(w, path, v[0], v[1]);
+        else if (!strcmp(w, "shot") && sscanf(line, " shot %95s", tag) == 1)
+            snprintf(c->shot_tag, sizeof c->shot_tag, "%s", tag);
+        else if (!strcmp(w, "focus") && s->queued == XR_SESSION_STATE_VISIBLE) queue_state(s, XR_SESSION_STATE_FOCUSED);
+        else if (!strcmp(w, "unfocus") && s->queued == XR_SESSION_STATE_FOCUSED) queue_state(s, XR_SESSION_STATE_VISIBLE);
+        else logf_(s->inst, "live: can't read '%s'\n", line);
+    }
+    free(buf);
+    char ack[1100];
+    snprintf(ack, sizeof ack, "%s.ack", c->live_path);
+    if ((f = fopen(ack, "w"))) fprintf(f, "%ld %llu\n", seq, (unsigned long long)s->frame), fclose(f);
+    logf_(s->inst, "live seq %ld applied frame %llu\n", seq, (unsigned long long)s->frame);
 }
 
 static XrResult XRAPI_CALL fx_WaitFrame(XrSession h, const XrFrameWaitInfo *wi, XrFrameState *fs) {
@@ -574,6 +676,7 @@ static XrResult XRAPI_CALL fx_WaitFrame(XrSession h, const XrFrameWaitInfo *wi, 
     s->last_predicted = display;
     s->waited++;
     run_script(s, display);
+    live_poll(s);
     fs->predictedDisplayTime = display;
     fs->predictedDisplayPeriod = period_ns(s);
     fs->shouldRender = s->state == XR_SESSION_STATE_VISIBLE || s->state == XR_SESSION_STATE_FOCUSED;
@@ -586,6 +689,7 @@ static XrResult XRAPI_CALL fx_BeginFrame(XrSession h, const XrFrameBeginInfo *bi
     if (!s) return XR_ERROR_HANDLE_INVALID;
     if (bi && bi->type != XR_TYPE_FRAME_BEGIN_INFO) return XR_ERROR_VALIDATION_FAILURE;
     if (s->lost) return XR_ERROR_SESSION_LOST;
+    if (s->failed) return XR_ERROR_RUNTIME_FAILURE;
     if (!s->running) return XR_ERROR_SESSION_NOT_RUNNING;
     if (s->waited <= 0) return XR_ERROR_CALL_ORDER_INVALID;
     s->waited--;
@@ -641,6 +745,22 @@ static XrResult XRAPI_CALL fx_EndFrame(XrSession h, const XrFrameEndInfo *ei) {
     g_stats.last_layer_count = ei->layerCount;
     logf_(s->inst, "frame %llu display_time %lld layers %u %s\n", (unsigned long long)s->frame,
           (long long)ei->displayTime, ei->layerCount, kinds);
+    if (!s->depth_logged) {
+        for (uint32_t i = 0; i < ei->layerCount && !s->depth_logged; i++) {
+            if (ei->layers[i]->type != XR_TYPE_COMPOSITION_LAYER_PROJECTION) continue;
+            const XrCompositionLayerProjection *p = (const XrCompositionLayerProjection *)ei->layers[i];
+            bool found_depth = false;
+            for (uint32_t view = 0; view < p->viewCount; view++) {
+                if (!p->views[view].next) continue;
+                uint32_t w = 0, h = 0;
+                float near_z = 0, far_z = 0;
+                fxvk_depth_view(&p->views[view], &w, &h, &near_z, &far_z);
+                logf_(s->inst, "composition depth view %u %ux%u near %.3f far %.3f\n", view, w, h, near_z, far_z);
+                found_depth = true;
+            }
+            s->depth_logged = found_depth;
+        }
+    }
     static int log_quads = -1;  // FAKE_XR_LOG_QUADS=1: each quad layer's space, its centre in the room and its size
     if (log_quads < 0) log_quads = getenv("FAKE_XR_LOG_QUADS") && *getenv("FAKE_XR_LOG_QUADS") == '1';
     for (uint32_t i = 0; log_quads && i < ei->layerCount; i++) {
@@ -706,6 +826,7 @@ static XrResult XRAPI_CALL fx_DestroySpace(XrSpace h) {
 // a hand at time t (the script's track, interpolated; still where no track says otherwise)
 static vr_pose hand_at(session *s, int h, XrTime t) {
     config *c = &s->inst->cfg;
+    if (c->live_hand[h]) return live_at(c, h, t);
     int n = c->hands[h].n;
     if (!n) return euler_pose(h ? 0.2f : -0.2f, 1.3f, -0.3f, 0, 0, 0);
     double ts = s->first_time ? (double)(t - s->first_time) / 1e9 : 0;
@@ -731,6 +852,13 @@ static float local_height(void) {
     static float h = -1;
     if (h < 0) h = getenv("FAKE_XR_LOCAL_HEIGHT") ? (float)atof(getenv("FAKE_XR_LOCAL_HEIGHT")) : 0;
     return h;
+}
+
+// the head (the script's pose, in LOCAL) in STAGE space
+static vr_pose head_in_stage(session *s) {
+    vr_pose lift = vr_pose_identity();
+    lift.p.y = local_height();
+    return vr_pose_mul(lift, s->head);
 }
 
 static vr_pose space_at(space *sp, XrTime t) {
@@ -797,7 +925,7 @@ static XrResult XRAPI_CALL fx_LocateViews(XrSession h, const XrViewLocateInfo *l
     float half = s->inst->cfg.ipd * 0.5f;
     for (int eye = 0; eye < 2; eye++) {
         vr_pose offset = {vr_quat_identity(), {eye ? half : -half, 0, 0}};
-        views[eye].pose = to_xr(vr_pose_mul(base_inv, vr_pose_mul(s->head, offset)));
+        views[eye].pose = to_xr(vr_pose_mul(base_inv, vr_pose_mul(head_in_stage(s), offset)));
         views[eye].fov.angleLeft = eye ? -FAKE_XR_FOV_RIGHT : FAKE_XR_FOV_LEFT;
         views[eye].fov.angleRight = eye ? -FAKE_XR_FOV_LEFT : FAKE_XR_FOV_RIGHT;
         views[eye].fov.angleUp = FAKE_XR_FOV_UP;
