@@ -47,7 +47,7 @@ headset, or when the runtime ends or loses the session, the game goes on flat an
 | X / Y | X / Y | A / B | A / B |
 | left grip | L (abilities) | right grip | R |
 | left trigger | ZL | right trigger | ZR |
-| menu: a tap | + | menu: held 0.6 s | - |
+| menu: a tap | + | menu: held 0.6 s | the F1 menu (opens or closes it) |
 | left grip + right stick | d-pad | slash / stab (right hand) | Y |
 | left hand raised in front of the face | ZL (guard) | | |
 

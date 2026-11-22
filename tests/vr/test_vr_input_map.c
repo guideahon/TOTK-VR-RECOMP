@@ -86,11 +86,15 @@ static void test_menu(void) {
     CHECK_EQ_INT(map(&s, (vr_pad_in){0}, 10.3).buttons, BIT(VRB_PLUS));
     CHECK_EQ_INT(map(&s, (vr_pad_in){0}, 10.35).buttons, BIT(VRB_PLUS));
     CHECK_EQ_INT(map(&s, (vr_pad_in){0}, 10.45).buttons, 0);
-    // held: - from VR_PAD_MENU_HOLD on, for as long as it is held, and no + after
+    // held: opens the F1 menu once, and does not also press pause
     CHECK_EQ_INT(map(&s, (vr_pad_in){.menu = true}, 20.0).buttons, 0);
     CHECK_EQ_INT(map(&s, (vr_pad_in){.menu = true}, 20.59).buttons, 0);
-    CHECK_EQ_INT(map(&s, (vr_pad_in){.menu = true}, 20.6).buttons, BIT(VRB_MINUS));
-    CHECK_EQ_INT(map(&s, (vr_pad_in){.menu = true}, 21.5).buttons, BIT(VRB_MINUS));
+    vr_pad_out held = map(&s, (vr_pad_in){.menu = true}, 20.6);
+    CHECK(held.overlay);
+    CHECK_EQ_INT(held.buttons, 0);
+    held = map(&s, (vr_pad_in){.menu = true}, 21.5);
+    CHECK(!held.overlay);
+    CHECK_EQ_INT(held.buttons, 0);
     CHECK_EQ_INT(map(&s, (vr_pad_in){0}, 21.6).buttons, 0);
     CHECK_EQ_INT(map(&s, (vr_pad_in){0}, 21.65).buttons, 0);
 }

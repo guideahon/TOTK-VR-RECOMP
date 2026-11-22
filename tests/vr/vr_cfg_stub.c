@@ -38,3 +38,6 @@ int cfg_bool(const char *name) { return strcmp(cfg_value(name), "0") != 0; }
 // (a test that changes a variable bumps this so vr_options parses again)
 unsigned vr_cfg_stub_version;
 unsigned cfg_version(void) { return vr_cfg_stub_version; }
+
+// ui/menu.cpp's menu_toggle (vr_input.c: the menu button held), nothing to open in the tests
+void menu_toggle(void) {}

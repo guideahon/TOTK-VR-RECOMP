@@ -46,7 +46,7 @@ static const struct {
     {"y", "Y", XR_ACTION_TYPE_BOOLEAN_INPUT},
     {"crouch", "Crouch (left stick)", XR_ACTION_TYPE_BOOLEAN_INPUT},
     {"look", "Look (right stick)", XR_ACTION_TYPE_BOOLEAN_INPUT},
-    {"menu", "Menu (+; held: -)", XR_ACTION_TYPE_BOOLEAN_INPUT},
+    {"menu", "Menu (+; held: the F1 menu)", XR_ACTION_TYPE_BOOLEAN_INPUT},
     {"zl", "ZL", XR_ACTION_TYPE_FLOAT_INPUT},
     {"zr", "ZR", XR_ACTION_TYPE_FLOAT_INPUT},
     {"l", "L (with the right stick: d-pad)", XR_ACTION_TYPE_FLOAT_INPUT},
@@ -534,6 +534,7 @@ static void update(void) {
     in.active = r == XR_SUCCESS;  // (XR_SESSION_NOT_FOCUSED: the runtime's own menu has the controllers)
     if (!in.active) {
         memset(&in.out, 0, sizeof in.out);
+        in.pad.menu = false, in.pad.overlay_fired = false, in.pad.plus_until = 0;
         return;
     }
     in.syncs++;
@@ -556,14 +557,20 @@ static void update(void) {
     in.drawing = p.rtrigger >= VR_PAD_PRESS;
     if (in.bettervr) {
         vr_pad_in sticks = p;   // (the sticks and snap turning from the classic map; the buttons from the gestures)
-        sticks.a = sticks.b = sticks.x = sticks.y = sticks.lclick = sticks.rclick = sticks.menu = false;
-        sticks.ltrigger = sticks.rtrigger = sticks.lgrip = sticks.rgrip = 0;
+        sticks.a = sticks.b = sticks.x = sticks.y = sticks.lclick = sticks.rclick = false;   // (the menu button stays:
+        sticks.ltrigger = sticks.rtrigger = sticks.lgrip = sticks.rgrip = 0;                  // vr_pad_map times it)
         vr_pad_map(&in.pad, &sticks, now / 1e9, &in.out);
         in.out.buttons = gestures(&p, now / 1e9);
         if (in.gest.stick_ry_set) in.out.ry = (int32_t)(in.gest.stick_ry * 32767);   // (magnesis by hand)
-        if (p.menu) in.out.buttons |= 1ull << VRB_PLUS;   // (the menu button: the inventory too)
+        if (now / 1e9 < in.pad.plus_until) in.out.buttons |= 1ull << VRB_PLUS;   // (a tap of the menu button: +)
     } else {
         vr_pad_map(&in.pad, &p, now / 1e9, &in.out);
+    }
+    // the menu button held (BOTW VR, 2026-11-21): this port's F1 menu, opened or closed once per hold; a tap is the
+    // game's + (it was - held, and + for as long as held with the gestures)
+    if (in.out.overlay) {
+        extern void menu_toggle(void);   // (ui/menu.cpp; tests/vr/vr_cfg_stub.c in the tests)
+        menu_toggle();
     }
     in.out.rx = (int32_t)(in.out.rx * in.turn_speed);
     if (in.out.snap) {

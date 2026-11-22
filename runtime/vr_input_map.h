@@ -6,7 +6,7 @@
 //   X / Y        X / Y                 A / B         A / B
 //   left grip    L (runes)             right grip    R (throw)
 //   left trigger ZL (shield, aim)      right trigger ZR (bow)
-//   menu (left)  a tap: + (inventory); held 0.6 s: - (map), for as long as it is held
+//   menu          tap: + (pause); held 0.6 s: the F1 menu (the map is X)
 //   left grip held + right stick: the d-pad (weapons, bows, shields, runes) in the stick's direction; the camera and
 //   L wait until the grip is let go
 //   snap turning (s->snap on): the right stick pushed sideways turns the view a step at once (snap: -1 left, +1 right,
@@ -34,6 +34,7 @@ typedef struct {
     uint64_t buttons;
     int32_t lx, ly, rx, ry;
     int snap;  // snap turning: a step to the left (-1) or right (+1) to make now, else 0
+    bool overlay; // opened by holding the menu button
 } vr_pad_out;
 
 typedef struct {
@@ -41,6 +42,7 @@ typedef struct {
     bool menu;           // the menu button was down at the last update
     double menu_down;    // ... since this time (s)
     double plus_until;   // a tap's + is held until this time (s)
+    bool overlay_fired;  // this menu-button hold already opened the overlay
     bool snap;           // snap turning on (set by the caller)
     bool snap_armed;     // the right stick has come back to the middle since the last step
     float dead;          // the sticks' dead zone (0: VR_PAD_DEAD; Options > VR > Stick dead zone)
@@ -49,7 +51,7 @@ typedef struct {
 #define VR_PAD_PRESS 0.5f         // a trigger or grip counts as pressed from here
 #define VR_PAD_DEAD 0.12f         // the sticks' dead zone (radial)
 #define VR_PAD_DPAD 0.6f          // the right stick picks a d-pad direction from here
-#define VR_PAD_MENU_HOLD 0.6      // the menu button held this long (s) is -
+#define VR_PAD_MENU_HOLD 0.6      // held this long: the F1 menu
 #define VR_PAD_TAP 0.1            // a tap's + is held this long (s): the game sees it for a few frames
 #define VR_PAD_SNAP 0.7f          // snap turning: a push this far sideways is a step...
 #define VR_PAD_SNAP_REARM 0.3f    // ... and the stick back under this, the next one can come
@@ -84,8 +86,23 @@ static inline uint64_t vr_pad_menu_buttons(const vr_pad_in *in, bool map) {
     return b;
 }
 
+// A tap stays the game's pause button. Holding it opens the F1 menu once; X still opens the map.
+static inline bool vr_pad_menu_update(vr_pad_state *s, bool down, double now) {
+    bool overlay = false;
+    if (down && !s->menu) s->menu_down = now, s->overlay_fired = false;
+    if (down && !s->overlay_fired && now - s->menu_down >= VR_PAD_MENU_HOLD)
+        overlay = s->overlay_fired = true;
+    if (!down && s->menu) {
+        if (!s->overlay_fired && now - s->menu_down < VR_PAD_MENU_HOLD) s->plus_until = now + VR_PAD_TAP;
+        s->overlay_fired = false;
+    }
+    s->menu = down;
+    return overlay;
+}
+
 static inline void vr_pad_map(vr_pad_state *s, const vr_pad_in *in, double now, vr_pad_out *out) {
     uint64_t b = 0;
+    out->overlay = vr_pad_menu_update(s, in->menu, now);
     if (in->a) b |= 1ull << VRB_A;
     if (in->b) b |= 1ull << VRB_B;
     if (in->x) b |= 1ull << VRB_X;
@@ -111,12 +128,8 @@ static inline void vr_pad_map(vr_pad_state *s, const vr_pad_in *in, double now, 
     } else if (grip) {
         b |= 1ull << VRB_L;
     }
-    // the menu button: a tap is +, held it is -
-    if (in->menu && !s->menu) s->menu_down = now;
-    if (in->menu && now - s->menu_down >= VR_PAD_MENU_HOLD) b |= 1ull << VRB_MINUS;
-    if (!in->menu && s->menu && now - s->menu_down < VR_PAD_MENU_HOLD) s->plus_until = now + VR_PAD_TAP;
+    // The menu button: a short tap is +; a hold opens the F1 menu above.
     if (now < s->plus_until) b |= 1ull << VRB_PLUS;
-    s->menu = in->menu;
     // snap turning: a sideways push is one step, the stick sideways is not the camera's
     out->snap = 0;
     if (s->snap && !s->chord) {

@@ -103,7 +103,7 @@ static struct {
     vr_view q[QUEUE];
     unsigned q_head, q_count;
     uint64_t updates;
-} c = {.head = -1, .stereo = -1, .window_aspect = 16.0f / 9.0f, .eye_height = 1.55f, .forward = 0.18f};
+} c = {.head = -1, .stereo = -1, .window_aspect = 16.0f / 9.0f, .eye_height = 1.55f, .forward = 0.22f};   // (forward: 0.22 m as BOTW VR since 2026-11-21, out of Link's head's model)
 
 static bool head_on(void) {
     if (c.head < 0) {
