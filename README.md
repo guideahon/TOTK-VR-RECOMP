@@ -1,102 +1,140 @@
-# TotK Recomp
+<h1 align="center">TOTK VR Recomp</h1>
 
-**TotK Recomp** is a static recompilation of *The Legend of Zelda: Tears of the Kingdom* (Nintendo Switch, 2023) into a native x86-64 application for Windows and Linux ([docs/architecture.md](docs/architecture.md)).
+<p align="center"><i>The Legend of Zelda: Tears of the Kingdom</i> in PC VR, native on Windows and Linux</p>
 
-> [!NOTE]
-> **TOTK VR Recomp** is a fork of [TotK Recomp](https://github.com/valentderah/totk-pc-recomp) with a PC-VR mode
-> (OpenXR), ported from its sister project [BOTW VR Recomp](https://github.com/guideahon/BOTW-VR-RECOMP): the game on a
-> virtual screen out of play, 6DOF head tracking and stereo in play (1.2.1), VR controllers and motion combat. **Install: run
-> `Install TOTK VR.bat`** (pick your extracted ExeFS / RomFS folders; it does the rest). Dumping your own game and
-> the manual way: [docs/vr-setup.md](docs/vr-setup.md) (también en español). Status and what is missing:
-> [docs/vr.md](docs/vr.md). Everything else below is upstream's README.
+<p align="center">
+  <a href="#install">Install</a> ·
+  <a href="docs/vr.md">VR mode</a> ·
+  <a href="docs/vr-setup.md">Setup</a> ·
+  <a href="docs/vr-parity.md">What is ported</a> ·
+  <a href="https://github.com/guideahon/TOTK-VR-RECOMP/issues">Issues</a> ·
+  <a href="docs/vr-setup.md#en-español">Español</a>
+</p>
+
+**TOTK VR Recomp** adds a PC-VR mode (OpenXR) to a native recompilation of *Tears of the Kingdom* (Nintendo Switch):
+stereo and 6DOF head tracking in play, first person (or third), the menus and loading on a virtual screen, VR
+controllers with [BetterVR](https://github.com/Crementif/BotW-BetterVR)'s body gestures, motion combat, roomscale and
+vibration. It is built from your own copy of the game.
+
+The recompilation underneath is [TotK Recomp](https://github.com/valentderah/totk-pc-recomp); this project is a fork of
+it that adds VR. The VR mode is ported from its sister project for *Breath of the Wild*,
+[BOTW VR Recomp](https://github.com/guideahon/BOTW-VR-RECOMP), and brought up to date with it
+([docs/vr-parity.md](docs/vr-parity.md)). Everything TotK Recomp does (frame rates, resolutions, DLSS, HDR, mods,
+keyboard and gamepad, ...) works here too, and you can still play flat.
 
 > [!IMPORTANT]
-> **No game files are included.** You need your own legally obtained copy of *Tears of the Kingdom*, dumped from your own console: the base game and the 1.1.0, 1.2.1 or 1.4.3 update. Instructions for obtaining those files will not be provided.
->
-> The game is built from your files on your machine, so the result contains the game. It is for your own use. Do not share it.
+> **No game files are included.** You need your own legally obtained copy of *Tears of the Kingdom*, dumped from
+> **your own** Nintendo Switch: the base game and the **1.2.1** update (1.4.3 and 1.1.0 build too, with the virtual
+> screen only). This project does not provide game files, keys, firmware, dumping or decryption tools, or instructions
+> on how to obtain them. The game code is recompiled locally, on your machine, from your files.
 
-## Status
+> [!WARNING]
+> **Status: early.** It has run with the game (1.2.1) against a scripted OpenXR runtime (fake_xr), in stereo and in
+> first person, on Windows and Linux; it has not been played in a headset yet. The HUD is still drawn into each eye's
+> picture, and Link's arms, the weapon in hand and the bow aimed by hand are not ported yet. What works and what is
+> missing: [docs/vr.md](docs/vr.md) and [docs/vr-parity.md](docs/vr-parity.md).
 
-Early development. The game is playable on Windows and Linux; visual bugs and crashes are still expected.
+> [!NOTE]
+> **Made almost entirely with AI.** Nearly all of the code, tooling, reverse engineering and documentation is written
+> by an AI (Anthropic's Claude, through Claude Code), directed, tested and reviewed by a human, the same way TotK
+> Recomp, BOTW VR Recomp and LAS Recomp are made. If you don't trust code written by AI, you can simply ignore this
+> project.
 
-Report problems as issues, following [CONTRIBUTING.md](CONTRIBUTING.md).
+## Install
 
-## Features
+**You need:** your own game files, Windows 10 or later or Linux 6.7 or later on x86-64, a CPU with AVX2, a GPU with
+Vulkan 1.3 and `VK_EXT_external_memory_host`, about 60 GB free during setup (20 GB with the import of extracted
+folders), and a PC-VR headset with an OpenXR runtime: Quest 2/3/Pro through Virtual Desktop (VDXR or SteamVR), Quest
+Link or Air Link, SteamVR headsets, WMR; on Linux, the system's OpenXR runtime (WiVRn, Monado).
 
-- Native code, not emulation
-- Game updates 1.1.0, 1.2.1 and 1.4.3; 1.2.1 and 1.4.3 saves carry over between them
-- Takes NSP and XCI game files, and compressed NSZ and XCZ as they are: the setup unpacks them itself
-- 60 fps by default; up to 144 fps or the monitor's refresh rate (experimental)
-- Custom resolutions (1080p, 2k...), supersampling and AMD FSR 1 upscaling
-- NVIDIA DLSS / DLAA on RTX GPUs: the setup downloads `nvngx_dlss.dll` from NVIDIA's DLSS SDK repository
-  (github.com/NVIDIA/DLSS, NVIDIA RTX SDK license) when it finds an RTX GPU; untick it in the setup to skip it
-- HDR10 output with peak, game and HUD brightness settings
-- 16:10 (Steam Deck, handhelds), 3:2 (Surface, Framework), 21:9 and 32:9 (ultrawide) game resolutions, with the camera and the interface in that shape
-- Anisotropic texture filtering up to 16x, for sharp ground into the distance
-- In-game settings menu (F1) and performance overlay (F10)
-- Play time across runs on the Game tab of the settings menu, kept in `playtime.txt` next to the saves
-- Discord Rich Presence ("Playing TotK Recomp" with the play time), off by default, own application id supported
-- Setup and in-game menu in English, Russian, Brazilian Portuguese and Simplified Chinese
-- Keyboard, mouse and gamepad with remapping, rumble and gyro
-- Stereo or 5.1 surround sound output
-- Xbox button prompts: LB, RB, LT, RT, Menu and View, and A, B, X and Y as labelled on the button to press, with either button layout
-- Shaders prepared at install instead of during play
-- Mods made for emulators: unpack a mod into the `mods` folder next to `totk.exe`; switch and order them in the menu. RomFS
-  mods, TKMM's merged output and ExeFS code patches (`.ips`, `.pchtxt`) work; the game rebuilds itself for code patches
-  ([docs/mods.md](docs/mods.md)). HD texture packs work: the port grows the texture heap a pack asks for by itself. Tested
-  with the HDPacks.com 4K Texture Pack v1.0 on 1.4.3 and 1.2.1; other packs come with no guarantee
-- Atmosphère cheats: put a cheat file into a mod and switch its cheats in the menu ([docs/cheats.md](docs/cheats.md))
+There are no release downloads of the VR version yet: it is built from source, on your PC.
 
-## Planned
+- **Windows:** run `Install TOTK VR.bat` at the repository's root. It asks for your ExeFS and RomFS folders, installs
+  what is missing (MSYS2, Python, the .NET 10 SDK), builds the game with VR and writes `Play TOTK VR.bat` with your
+  options, plus a desktop shortcut. Start the headset's OpenXR runtime, then play.
+- **Linux:** follow [docs/building.md](docs/building.md) ("Linux") with `tools/build_game.py --vr`, then start
+  `build/v121/totk` with `TOTK_VR=1`.
 
-- VRR
+Step by step, dumping your own game and the manual way: [docs/vr-setup.md](docs/vr-setup.md) (también en español).
+In VR set `TOTK_FPS_LIMIT=240`: in stereo the game runs at twice the headset's rate.
 
-## Installing
+## Playing
 
-### Windows
+Every VR option is in the game's settings menu (F1, or the VR controllers' menu button held), on the **VR** tab, and in
+`totk.ini`'s `[vr]` section: view, cutscenes, turning, controls, comfort, combat, play position.
 
-Requirements: Windows 10 or later, an x86-64 CPU with SSE4.2 (AVX2/FMA machines get a faster build), a GPU with Vulkan 1.3 and `VK_EXT_external_memory_host`, about 36 GiB free during setup (20 GiB after).
+The default layout (Quest controllers):
 
-1. Download `TotK-Setup-<version>-windows.zip` from [Releases](../../releases/latest) and unpack it.
-2. Start `TotK-Setup.exe`. If SmartScreen warns about an unsigned app, choose *More info*, then *Run anyway*.
-3. Pick your game files, the language and an install folder, and press *Start*. The setup builds the game once. With
-   an NVIDIA RTX GPU it also downloads NVIDIA DLSS, unless you untick *Download NVIDIA DLSS*; turn DLSS on in the
-   menu (F1).
-4. Play `totk.exe` from the install folder.
+| Control | In the game | Control | In the game |
+|---|---|---|---|
+| A | accept, interact | B | cancel, put away (a tap) |
+| left stick | walk; click: crouch; held: run | right stick | turn; up: jump; click: inventory; held: the scope |
+| right trigger | the right hand's action (attack, draw the bow, use the ability); held: weapon menu | left trigger | shield and lock on, parry on the press; held: shield menu |
+| right grip | draw or put away the bow; held: bow menu | left grip | grab; with the bow out, held: arrow menu |
+| Y | the ability; held: the abilities' wheel | X | the map |
+| menu button | pause; held: the settings menu (F1) | both hands at the mouth + both triggers | whistle |
 
-### Linux
+Body slots (from BetterVR): right shoulder + grip, the weapon; left shoulder, the bow; left hip, the ability (held:
+its wheel). Slashes and thrusts of the right hand attack. `vr_controls = bettervr` gives BetterVR's own buttons,
+`classic` a gamepad's layout ([docs/vr.md](docs/vr.md)).
 
-Requirements: as on Windows, plus Linux 6.7 or later and glibc 2.34 or later (Ubuntu 22.04, Debian 12, Fedora 35, SteamOS 3).
+## Status and docs
 
-1. Download `TotK-Setup-x86_64.AppImage` from [Releases](../../releases/latest), or build it ([docs/installer.md](docs/installer.md), "Linux release").
-2. Make it executable (`chmod +x TotK-Setup-x86_64.AppImage`) and start it. On a Steam Deck, do this in Desktop Mode.
-3. Pick your game files, the language and an install folder, and press *Start*.
-4. Play `totk` from the install folder.
+- **[VR mode](docs/vr.md)**: status, every setting, how it hooks into the game, the tests.
+- **[What is ported](docs/vr-parity.md)**: each BOTW VR feature, and what it needs in TotK.
+- **[Headset checklist](docs/vr-checklist.md)**: what to try in a headset and how to report it.
+- **[Setup](docs/vr-setup.md)**: from zero, dumping your own game.
 
-To update, run a newer setup on the same folder; saves and settings are kept. Settings are in the in-game menu and in `totk.ini` ([totk.ini.example](totk.ini.example) lists every key). Controls: [docs/controls.md](docs/controls.md).
+Everything about the base game, which this project shares with TotK Recomp: [controls](docs/controls.md),
+[settings](docs/settings.md) and [totk.ini.example](totk.ini.example), [mods](docs/mods.md), [cheats](docs/cheats.md),
+[building](docs/building.md), [testers](docs/tester-guide.md). Saves go to `build/profile` (1.2.1).
 
-## Credits
+## Found a bug?
 
-TotK Recomp builds on the projects below. What was taken from each, with its license, is listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+If it also happens flat (`TOTK_VR=0`), it is most likely in the base game: check
+[TotK Recomp's issues](https://github.com/valentderah/totk-pc-recomp/issues), and report it there only if it happens in
+an official TotK Recomp build too. VR bugs go to
+[this project's issues](https://github.com/guideahon/TOTK-VR-RECOMP/issues): say which headset and runtime, the game
+version, what you did, and attach the log (`logs/totk.log` next to the game; the `vr:` lines matter most).
 
-- [LAS Recomp](https://github.com/peiikai/LASRecomp)
-- [MacNativeGames](https://github.com/ly05010419/MacNativeGames)
-- [d2r-mobile](https://github.com/jhaizhou-ops/d2r-mobile) and [nxnative](https://github.com/seedds/nxnative)
-- [SavageWindRecomp](https://github.com/Revivedx/SavageWindRecomp)
-- [Ryujinx](https://github.com/Ryujinx/Ryujinx)
-- [deko3d](https://github.com/devkitPro/deko3d)
-- [hactool](https://github.com/SciresM/hactool)
-- [SDL 3](https://libsdl.org), [Dear ImGui](https://github.com/ocornut/imgui), [AMD FSR 1](https://github.com/GPUOpen-Effects/FidelityFX-FSR), [Vulkan Memory Allocator](https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator), [libopus](https://opus-codec.org), [libvpx](https://chromium.googlesource.com/webm/libvpx), [Zstandard](https://github.com/facebook/zstd)
-- [Switchbrew](https://switchbrew.org) and the Switch homebrew community
+## Contributing
 
-## License
+Help is welcome, from porting the features [docs/vr-parity.md](docs/vr-parity.md) still lists to playing it in a
+headset with [docs/vr-checklist.md](docs/vr-checklist.md): anyone with an AI coding agent can pick a row. Open pull
+requests against `main`. See [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md); run
+`tools/check_content.py` before a commit.
 
-The project's own code is under the [MIT License](LICENSE); third-party code keeps its own license ([THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)). The license grants nothing for Nintendo's game.
+## Respect copyright
 
-TotK Recomp is an independent, non-commercial fan project, not affiliated with or endorsed by Nintendo. *The Legend of Zelda*, *Tears of the Kingdom* and *Nintendo Switch* are trademarks of Nintendo.
+- *The Legend of Zelda: Tears of the Kingdom* is © Nintendo. This is a fan project. It is not affiliated with,
+  endorsed by or sponsored by Nintendo. *Nintendo Switch* and *The Legend of Zelda* are trademarks of Nintendo.
+- This repository contains no game files, no game code (also not the C code the recompiler generates from it), no
+  assets, no keys.
+- The game code you generate and the build made from it contain Nintendo's code. They are for your own use only:
+  don't share them, upload them or ship them.
+- Issues, pull requests or discussions that contain game files, keys, generated code or links to pirated copies
+  will be removed. Piracy is not supported in any way.
+- Follow the copyright laws of your country. Dumping a game you own for personal use is legal in some countries and
+  not in others; that is your responsibility.
 
-## Building from source
+## Credits and license
 
-[docs/building.md](docs/building.md) lists the toolchain and the steps. Everything the build writes stays under `build\` and `generated\`, which git ignores; run `tools/check_content.py` before a commit. Testers: [docs/tester-guide.md](docs/tester-guide.md).
+- **VR:** ported from [BOTW VR Recomp](https://github.com/guideahon/BOTW-VR-RECOMP). Its VR design, controls and
+  gestures follow [BetterVR](https://github.com/Crementif/BotW-BetterVR) by Crementif and contributors (its swing
+  analysis by Acudofy, MIT); BetterVR itself credits the [BotW decompilation project](https://github.com/zeldaret/botw)
+  by leoetlino and others.
+- **The recompilation:** [TotK Recomp](https://github.com/valentderah/totk-pc-recomp) by Valiantsin Dzerakh and
+  contributors (MIT), built on [LAS Recomp](https://github.com/peiikai/LASRecomp),
+  [MacNativeGames](https://github.com/ly05010419/MacNativeGames), [d2r-mobile](https://github.com/jhaizhou-ops/d2r-mobile)
+  and [nxnative](https://github.com/seedds/nxnative), [SavageWindRecomp](https://github.com/Revivedx/SavageWindRecomp),
+  [Ryujinx](https://github.com/Ryujinx/Ryujinx), [deko3d](https://github.com/devkitPro/deko3d),
+  [hactool](https://github.com/SciresM/hactool), [SDL 3](https://libsdl.org),
+  [Dear ImGui](https://github.com/ocornut/imgui), [AMD FSR 1](https://github.com/GPUOpen-Effects/FidelityFX-FSR),
+  [Vulkan Memory Allocator](https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator),
+  [libopus](https://opus-codec.org), [libvpx](https://chromium.googlesource.com/webm/libvpx),
+  [Zstandard](https://github.com/facebook/zstd), [OpenXR](https://www.khronos.org/openxr/), and
+  [Switchbrew](https://switchbrew.org) and the Switch homebrew community.
+- What was taken from each, with its license: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-Most of the code and documentation is written by AI coding agents (Claude Code) under the maintainer's direction; the maintainer plays every build and decides what is merged. [AGENTS.md](AGENTS.md) holds the rules they work under.
+The code is under the [MIT License](LICENSE), as upstream's; third-party code keeps its own license. The license covers
+this project's code only: it grants nothing for Nintendo's game, which you must supply yourself.

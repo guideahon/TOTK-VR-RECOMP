@@ -1,7 +1,7 @@
 # VR mode (work in progress)
 
-A PC-VR mode for TotK Recomp through OpenXR, ported from Savage Wind VR (the same mode for Breath of the Wild:
-github.com/guideahon/Savage-Wind-VR, branch `vr`, its docs/VR.md). Built only with `tools/build_game.py --vr`, turned
+A PC-VR mode for TotK Recomp through OpenXR, ported from BOTW VR Recomp (the same mode for Breath of the Wild:
+[github.com/guideahon/BOTW-VR-RECOMP](https://github.com/guideahon/BOTW-VR-RECOMP), its docs/VR.md). Built only with `tools/build_game.py --vr`, turned
 on at run time with `TOTK_VR=1`. A build without `--vr` has none of it and is the same as before.
 
 ## Status
